@@ -1,0 +1,29 @@
+export const validId = value => typeof value === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(value);
+export const validCommandId = value => typeof value === 'string' && /^[0-9a-f-]{36}$/.test(value);
+export function validateCommand(body) {
+  if (!body || !validId(body.sender_id) || !validId(body.target_id) || body.sender_id === body.target_id) return null;
+  if (!['get_status', 'get_recent_apps', 'shell'].includes(body.action)) return null;
+  const params = body.params ?? {};
+  if (typeof params !== 'object' || params === null || Array.isArray(params)) return null;
+  if (body.action === 'get_status') return { sender_id: body.sender_id, target_id: body.target_id, action: body.action, params: {} };
+  if (body.action === 'get_recent_apps') {
+    const hours = params.hours ?? 1;
+    if (!Number.isInteger(hours) || hours < 1 || hours > 24) return null;
+    return { sender_id: body.sender_id, target_id: body.target_id, action: body.action, params: { hours } };
+  }
+  if (typeof params.command !== 'string' || !params.command.trim() || params.command.length > 8192) return null;
+  if (params.root !== undefined && typeof params.root !== 'boolean') return null;
+  const timeout_seconds = params.timeout_seconds ?? 20;
+  if (!Number.isInteger(timeout_seconds) || timeout_seconds < 1 || timeout_seconds > 30) return null;
+  return { sender_id: body.sender_id, target_id: body.target_id, action: body.action,
+    params: { command: params.command, root: params.root ?? false, timeout_seconds } };
+}
+export function acceptResult(record, deviceId, body, now) {
+  if (!record || record.target_id !== deviceId || record.status !== 'pending') return null;
+  if (now >= record.deadline_at) return { ...record, status: 'timeout', completed_at: now };
+  if (typeof body.ok !== 'boolean') return null;
+  const result = body.ok ? (body.result ?? {}) : null;
+  const error = body.ok ? null : String(body.error ?? '设备执行失败').slice(0, 1024);
+  if (JSON.stringify(result).length > 48000) return null;
+  return { ...record, status: body.ok ? 'completed' : 'failed', result, error, completed_at: now };
+}

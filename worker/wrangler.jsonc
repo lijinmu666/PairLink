@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pairlink",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-06",
+  "durable_objects": {
+    "bindings": [{ "name": "HUB", "class_name": "PairHub" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PairHub"] }]
+}
