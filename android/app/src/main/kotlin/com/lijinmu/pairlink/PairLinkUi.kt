@@ -121,9 +121,8 @@ object PairLinkUi {
 @Composable
 private fun Screen(activity: MainActivity, ui: UiState) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    val tabs = listOf("连接", "查询", "操作", "设置")
+    val tabs = listOf("查询", "操作", "设置")
     val listStates = listOf(
-        rememberLazyListState(),
         rememberLazyListState(),
         rememberLazyListState(),
         rememberLazyListState(),
@@ -165,31 +164,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 when (selectedTab) {
                     0 -> {
                         item {
-                            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
-                                Text(ui.connection, color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.title2)
-                                Spacer(Modifier.height(8.dp))
-                                Text("你的手机，与对方保持连接", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                Spacer(Modifier.height(12.dp))
-                                SwitchPreference(title = "允许对方查询此手机", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
-                            }
-                        }
-                        item {
-                            Section("连接设置") {
-                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Input(ui.server, { ui.server = it }, "服务器 HTTPS 根地址", enabled = !ui.sharing)
-                                    Input(ui.own, { ui.own = it }, "自己的设备 ID", enabled = !ui.sharing)
-                                    Input(ui.peer, { ui.peer = it }, "对方的设备 ID", enabled = !ui.sharing)
-                                    Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
-                                    Action("测试服务器连接", activity::testConnection, enabled = !ui.busy, primary = false)
-                                    Action("查看本机连接与执行记录", activity::showLogs, primary = false)
-                                    Action("清除记录", activity::clearLogs, primary = false)
-                    }
-                }
-            }
-                    }
-                    1 -> {
-                        item {
-                            Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往连接页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往设置页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         item {
                             Section("查询对方") {
@@ -202,9 +177,9 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
                     }
-                    2 -> {
+                    1 -> {
                         item {
-                            Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往连接页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往设置页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         item {
                             Section("暂停与恢复对方应用") {
@@ -237,7 +212,29 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
                     }
-                    3 -> {
+                    2 -> {
+                        item {
+                            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
+                                Text(ui.connection, color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.title2)
+                                Spacer(Modifier.height(8.dp))
+                                Text("你的手机，与对方保持连接", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                Spacer(Modifier.height(12.dp))
+                                SwitchPreference(title = "允许对方查询此手机", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
+                            }
+                        }
+                        item {
+                            Section("连接设置") {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Input(ui.server, { ui.server = it }, "服务器 HTTPS 根地址", enabled = !ui.sharing)
+                                    Input(ui.own, { ui.own = it }, "自己的设备 ID", enabled = !ui.sharing)
+                                    Input(ui.peer, { ui.peer = it }, "对方的设备 ID", enabled = !ui.sharing)
+                                    Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
+                                    Action("测试服务器连接", activity::testConnection, enabled = !ui.busy, primary = false)
+                                    Action("查看本机连接与执行记录", activity::showLogs, primary = false)
+                                    Action("清除记录", activity::clearLogs, primary = false)
+                    }
+                }
+            }
                         item {
                             Section("执行与通知授权") {
                                 SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
