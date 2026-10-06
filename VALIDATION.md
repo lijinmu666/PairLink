@@ -1,3 +1,15 @@
+# Android 0.2.0 验证记录
+
+日期：2026-10-06（北京时间）。
+
+- GitHub Actions `assembleDebug lintDebug` 通过：[构建记录](https://github.com/lijinmu666/PairLink/actions/runs/37419860034)，源码提交 `671aa59573b66fbc12d67c7013b7763ecf5427bb`。
+- 同次构建中的 ShellRunner 检查、Worker 6 项测试及部署 dry-run 均通过。
+- 界面源码改为 Compose/Miuix 0.9.3，无 Android View 控件、原生 AlertDialog 或 Toast；不设置自定义应用图标或界面图标。系统权限页面与 root 管理器授权窗口由系统或对应管理器提供。
+- 默认蓝色主题、系统深浅色模式；对话框内容可滚动，结果支持选择复制。
+- APK ZIP 完整性检查通过，包含 Manifest 和 DEX。SHA-256：`ada8a8be0f3648eb8094044529737aa6e53acc126307118f3775d4364b46a405`。
+- 本次 CI 的调试签名与已交付的 0.1.0 不同，无法直接覆盖安装。需先记录服务器地址与双方 ID，卸载旧版后重新安装、配置与授权。
+- 尚未在手机或模拟器上验证新界面的实际显示、键盘和弹窗交互。
+
 # 0.1.0 验证记录
 
 日期：2026-10-06（北京时间）。
@@ -12,8 +24,8 @@
 
 ## 尚未验证
 
-- 尚未在两台真实 Android 手机上测试使用情况权限、root 管理器授权、前台通知、后台省电限制和网络切换。
-- 尚未部署到真实 Cloudflare 账户。
+- 用户已反馈 0.1.0 两台手机连接、最近应用查询，以及 `whoami` 返回 root 正常；前台通知、后台省电限制、网络切换和开关拒绝行为仍需验收。
+- 用户已成功部署 Worker 到真实 Cloudflare 账户。
 - JVM Shell 测试使用 Linux `sh`，不能替代 Android 的 `sh`/`su` 实测。
 
 ## 手机验收顺序
