@@ -25,6 +25,9 @@ final class Config {
         while (s.endsWith("/")) s = s.substring(0, s.length()-1);
         return s;
     }
+    static synchronized void clearLogs(Context c) {
+        prefs(c).edit().remove("logs").apply();
+    }
     static synchronized void log(Context c, String text) {
         String old = prefs(c).getString("logs", "");
         String next = new java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.CHINA).format(new java.util.Date()) + " " + text + "\n" + old;

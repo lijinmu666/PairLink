@@ -17,6 +17,13 @@ public final class MainActivity extends ComponentActivity {
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final UiState ui = new UiState();
     private volatile boolean busy;
+    private final Handler permissionHandler = new Handler(Looper.getMainLooper());
+    private final Runnable permissionRefresh = new Runnable() {
+        @Override public void run() {
+            refreshUsagePermission();
+            permissionHandler.postDelayed(this, 1000);
+        }
+    };
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (prefs, key) -> runOnUiThread(this::refreshState);
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -25,7 +32,11 @@ public final class MainActivity extends ComponentActivity {
         Config.prefs(this).registerOnSharedPreferenceChangeListener(preferenceListener);
         PairLinkUi.render(this, ui);
     }
+    private void refreshUsagePermission() {
+        ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
+    }
     private void refreshState() {
+        refreshUsagePermission();
         ui.setSharing(Config.sharing(this));
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setRoot(Config.prefs(this).getBoolean("root", false));
@@ -77,7 +88,14 @@ public final class MainActivity extends ComponentActivity {
             catch (Exception e) { show(e.getMessage()); }
         });
     }
-    public void showLogs() { ui.message("本机记录", Config.prefs(this).getString("logs", "暂无记录")); }
+    public void showLogs() {
+        String logs = Config.prefs(this).getString("logs", "");
+        ui.message("本机记录", logs.isEmpty() ? "暂无记录" : logs);
+    }
+    public void clearLogs() {
+        Config.clearLogs(this);
+        ui.message("本机记录", "记录已清除");
+    }
     private void authorizeRoot() {
         network.execute(() -> {
             try {
@@ -157,8 +175,18 @@ public final class MainActivity extends ComponentActivity {
     }
     private void show(String s) { runOnUiThread(() -> { if (!isDestroyed()) ui.showResult(s == null ? "" : s); }); }
     private void toast(String s) { ui.message("提示", s); }
-    @Override public void onResume() { super.onResume(); refreshState(); }
+    @Override public void onResume() {
+        super.onResume();
+        refreshState();
+        permissionHandler.removeCallbacks(permissionRefresh);
+        permissionHandler.postDelayed(permissionRefresh, 1000);
+    }
+    @Override public void onPause() {
+        permissionHandler.removeCallbacks(permissionRefresh);
+        super.onPause();
+    }
     @Override public void onDestroy() {
+        permissionHandler.removeCallbacks(permissionRefresh);
         Config.prefs(this).unregisterOnSharedPreferenceChangeListener(preferenceListener);
         network.shutdown(); super.onDestroy();
     }

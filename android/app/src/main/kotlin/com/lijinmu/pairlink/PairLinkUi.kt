@@ -29,6 +29,7 @@ class UiState {
     var root by mutableStateOf(false)
     var sendRoot by mutableStateOf(false)
     var busy by mutableStateOf(false)
+    var usageAllowed by mutableStateOf(false)
     var connection by mutableStateOf("共享已关闭")
     var dialog by mutableStateOf<UiDialog?>(null)
 
@@ -83,6 +84,8 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         Input(ui.peer, { ui.peer = it }, "对方的设备 ID", enabled = !ui.sharing)
                         Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
                         Action("测试服务器连接", activity::testConnection, enabled = !ui.busy, primary = false)
+                        Action("查看本机连接与执行记录", activity::showLogs, primary = false)
+                        Action("清除记录", activity::clearLogs, primary = false)
                     }
                 }
             }
@@ -91,8 +94,10 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     SwitchPreference(title = "允许对方查询此手机", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
                     SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
                     SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
-                    Column(Modifier.padding(16.dp)) {
-                        Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
+                    if (!ui.usageAllowed) {
+                        Column(Modifier.padding(16.dp)) {
+                            Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
+                        }
                     }
                 }
             }
@@ -114,9 +119,6 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         Action("执行命令", activity::executeShell, enabled = !ui.busy)
                     }
                 }
-            }
-            item {
-                Action("查看本机连接与执行记录", activity::showLogs, primary = false)
             }
             item {
                 Text("双方都需要主动安装、配置并开启共享。当前为单次命令执行，暂不提供交互式终端或 MCP。", modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
