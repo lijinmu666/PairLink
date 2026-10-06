@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -119,95 +120,98 @@ object PairLinkUi {
 
 @Composable
 private fun Screen(activity: MainActivity, ui: UiState) {
-    val homeListState = rememberLazyListState()
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val tabs = listOf("连接", "查询", "操作", "设置")
+    val listStates = listOf(
+        rememberLazyListState(),
+        rememberLazyListState(),
+        rememberLazyListState(),
+        rememberLazyListState(),
+    )
     val page = ui.resultPage
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(page) { if (page != null) keyboard?.hide() }
     BackHandler(enabled = page != null) { ui.resultPage = null }
+    BackHandler(enabled = page == null && selectedTab != 0 && ui.dialog == null) { selectedTab = 0 }
     if (page != null) {
         key(page) { ResultScreen(page, onBack = { ui.resultPage = null }) }
         return
     }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        topBar = { TopAppBar(title = "PairLink", largeTitle = "PairLink") },
+        topBar = {
+            TopAppBar(
+                title = "PairLink",
+                largeTitle = tabs[selectedTab],
+                bottomContent = {
+                    TabRow(
+                        tabs = tabs,
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it; keyboard?.hide() },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        minWidth = 56.dp,
+                    )
+                },
+            )
+        },
     ) { padding ->
-        LazyColumn(
-            state = homeListState,
-            modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            item {
-                Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
-                    Text(ui.connection, color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.title2)
-                    Spacer(Modifier.height(8.dp))
-                    Text("你的手机，与对方保持连接", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-            item {
-                Section("连接设置") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Input(ui.server, { ui.server = it }, "服务器 HTTPS 根地址", enabled = !ui.sharing)
-                        Input(ui.own, { ui.own = it }, "自己的设备 ID", enabled = !ui.sharing)
-                        Input(ui.peer, { ui.peer = it }, "对方的设备 ID", enabled = !ui.sharing)
-                        Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
-                        Action("测试服务器连接", activity::testConnection, enabled = !ui.busy, primary = false)
-                        Action("查看本机连接与执行记录", activity::showLogs, primary = false)
-                        Action("清除记录", activity::clearLogs, primary = false)
-                    }
-                }
-            }
-            item {
-                Section("共享与授权") {
-                    SwitchPreference(title = "允许对方查询此手机", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
-                    SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
-                    SwitchPreference(title = "允许使用 Shizuku / Sui", summary = "本机确认并授权后，用于 Shell 和应用暂停", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
-                    SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
-                    SwitchPreference(title = "允许对方发送普通通知", summary = "接收方确认后才允许发送", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
-                    SwitchPreference(title = "允许对方查看通知", summary = if (ui.notificationAccess) "仅在查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
-                    if (!ui.notificationAccess) {
-                        Column(Modifier.padding(16.dp)) {
-                            Action("开启通知访问权限", activity::notificationPermission, primary = false)
+        key(selectedTab) {
+            LazyColumn(
+                state = listStates[selectedTab],
+                modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                when (selectedTab) {
+                    0 -> {
+                        item {
+                            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
+                                Text(ui.connection, color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.title2)
+                                Spacer(Modifier.height(8.dp))
+                                Text("你的手机，与对方保持连接", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                Spacer(Modifier.height(12.dp))
+                                SwitchPreference(title = "允许对方查询此手机", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
+                            }
                         }
+                        item {
+                            Section("连接设置") {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Input(ui.server, { ui.server = it }, "服务器 HTTPS 根地址", enabled = !ui.sharing)
+                                    Input(ui.own, { ui.own = it }, "自己的设备 ID", enabled = !ui.sharing)
+                                    Input(ui.peer, { ui.peer = it }, "对方的设备 ID", enabled = !ui.sharing)
+                                    Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
+                                    Action("测试服务器连接", activity::testConnection, enabled = !ui.busy, primary = false)
+                                    Action("查看本机连接与执行记录", activity::showLogs, primary = false)
+                                    Action("清除记录", activity::clearLogs, primary = false)
                     }
-                    if (!ui.usageAllowed) {
-                        Column(Modifier.padding(16.dp)) {
-                            Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
+                }
+            }
+                    }
+                    1 -> {
+                        item {
+                            Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往连接页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
+                        item {
+                            Section("查询对方") {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Action("查看在线状态与电量", activity::queryStatus, enabled = !ui.busy)
+                                    Action("查看过去 24 小时应用使用时长", activity::queryRecent, enabled = !ui.busy, primary = false)
+                                    Action("查看已安装的用户应用", activity::queryInstalledApps, enabled = !ui.busy, primary = false)
+                                    Action("查看对方当前通知", activity::queryNotifications, enabled = !ui.busy, primary = false)
                     }
                 }
             }
-            item {
-                Section("查询对方") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Action("查看在线状态与电量", activity::queryStatus, enabled = !ui.busy)
-                        Action("查看过去 24 小时应用使用时长", activity::queryRecent, enabled = !ui.busy, primary = false)
-                        Action("查看已安装的用户应用", activity::queryInstalledApps, enabled = !ui.busy, primary = false)
-                        Action("查看对方当前通知", activity::queryNotifications, enabled = !ui.busy, primary = false)
                     }
-                }
-            }
-            item {
-                Section("应用暂停与恢复") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(ui.privilegeStatus)
-                        val modes = listOf("device_owner", "shizuku", "root")
-                        OverlayDropdownPreference(
-                            title = "应用暂停执行方式",
-                            summary = "本机接受暂停请求时使用",
-                            items = listOf("设备所有者", "Shizuku / Sui", "root"),
-                            selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
-                            onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
-                        )
-                        Action("查看设备所有者激活说明", activity::ownerInstructions, primary = false)
-                    }
-                    SwitchPreference(title = "允许对方暂停和恢复应用", summary = "默认关闭，执行方式由本机选择", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Input(ui.targetPackage, { ui.targetPackage = it }, "对方应用包名，例如 com.example.app")
-                        Action("暂停对方应用", activity::suspendPeerApp, enabled = !ui.busy)
-                        Action("恢复对方应用", activity::resumePeerApp, enabled = !ui.busy, primary = false)
-                        Action("恢复本机由 PairLink 暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
+                    2 -> {
+                        item {
+                            Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往连接页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
+                        item {
+                            Section("暂停与恢复对方应用") {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Input(ui.targetPackage, { ui.targetPackage = it }, "对方应用包名，例如 com.example.app")
+                                    Action("暂停对方应用", activity::suspendPeerApp, enabled = !ui.busy)
+                                    Action("恢复对方应用", activity::resumePeerApp, enabled = !ui.busy, primary = false)
                     }
                 }
             }
@@ -232,8 +236,57 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     }
                 }
             }
+                    }
+                    3 -> {
+                        item {
+                            Section("执行与通知授权") {
+                                SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
+                                SwitchPreference(title = "允许使用 Shizuku / Sui", summary = "本机确认并授权后，用于 Shell 和应用暂停", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
+                                SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
+                                SwitchPreference(title = "允许对方发送普通通知", summary = "接收方确认后才允许发送", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
+                                SwitchPreference(title = "允许对方查看通知", summary = if (ui.notificationAccess) "仅在查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
+                                if (!ui.notificationAccess) {
+                                    Column(Modifier.padding(16.dp)) {
+                                        Action("开启通知访问权限", activity::notificationPermission, primary = false)
+                                    }
+                                }
+                                if (!ui.usageAllowed) {
+                                    Column(Modifier.padding(16.dp)) {
+                                        Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
+                                    }
+                    }
+                }
+            }
+            item {
+                Section("本机应用暂停授权") {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(ui.privilegeStatus)
+                        val modes = listOf("device_owner", "shizuku", "root")
+                        OverlayDropdownPreference(
+                            title = "应用暂停执行方式",
+                            summary = "本机接受暂停请求时使用",
+                            items = listOf("设备所有者", "Shizuku / Sui", "root"),
+                            selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
+                            onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
+                        )
+                        Action("查看设备所有者激活说明", activity::ownerInstructions, primary = false)
+                    }
+                    SwitchPreference(title = "允许对方暂停和恢复应用", summary = "默认关闭，执行方式由本机选择", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
+                }
+            }
+            item {
+                Section("本机紧急恢复") {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("共享关闭后也可以恢复本机由 PairLink 暂停的应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Action("恢复本机由 PairLink 暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
+                    }
+                }
+            }
             item {
                 Text("双方都需要主动安装、配置并开启共享。当前为单次命令执行，暂不提供交互式终端或 MCP。", modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
+            }
+                    }
+                }
             }
         }
         val dialog = ui.dialog
