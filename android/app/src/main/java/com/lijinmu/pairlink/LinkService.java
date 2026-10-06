@@ -118,6 +118,10 @@ public final class LinkService extends Service {
             JSONObject result;
             switch (action) {
                 case "get_status": result = DeviceQueries.status(this); break;
+                case "get_installed_apps": result = DeviceQueries.installedApps(this); break;
+                case "send_notification":
+                    if (!Config.prefs(this).getBoolean("send_notifications", false)) throw new Exception("对方未开启发送普通通知");
+                    result = NotificationSender.send(this, params.optString("title"), params.optString("content")); break;
                 case "get_recent_apps":
                     int hours = params.optInt("hours", 1);
                     if (hours < 1 || hours > 24) throw new Exception("查询范围无效");

@@ -58,3 +58,11 @@ test('Shizuku Shell 默认关闭，不能与 root 同时请求', () => {
   assert.equal(validateCommand({ ...good, params: { command: 'id', shizuku: 'true' } }), null);
   assert.equal(validateCommand({ ...good, params: { command: 'id', shizuku: true, root: true } }), null);
 });
+test('设备信息和普通通知指令参数校验', () => {
+  assert.deepEqual(validateCommand({ ...base, action: 'get_installed_apps', params: { extra: true } }).params, {});
+  const good = { ...base, action: 'send_notification', params: { title: '提醒', content: '你好' } };
+  assert.deepEqual(validateCommand(good).params, good.params);
+  assert.equal(validateCommand({ ...good, params: { title: '', content: 'x' } }), null);
+  assert.equal(validateCommand({ ...good, params: { title: 'x'.repeat(129), content: 'x' } }), null);
+  assert.equal(validateCommand({ ...good, params: { title: 'x', content: 'x'.repeat(4097) } }), null);
+});

@@ -37,6 +37,9 @@ class UiState {
     var busy by mutableStateOf(false)
     var usageAllowed by mutableStateOf(false)
     var notificationAccess by mutableStateOf(false)
+    var notificationTitle by mutableStateOf("")
+    var notificationContent by mutableStateOf("")
+    var sendNotifications by mutableStateOf(false)
     var notifications by mutableStateOf(false)
     var connection by mutableStateOf("共享已关闭")
     var dialog by mutableStateOf<UiDialog?>(null)
@@ -103,6 +106,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
                     SwitchPreference(title = "允许使用 Shizuku / Sui", summary = "本机确认并授权后，用于 Shell 和应用暂停", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
                     SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
+                    SwitchPreference(title = "允许对方发送普通通知", summary = "接收方确认后才允许发送", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
                     SwitchPreference(title = "允许对方查看通知", summary = if (ui.notificationAccess) "仅在查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
                     if (!ui.notificationAccess) {
                         Column(Modifier.padding(16.dp)) {
@@ -121,6 +125,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Action("查看在线状态与电量", activity::queryStatus, enabled = !ui.busy)
                         Action("查看最近 24 小时使用的应用", activity::queryRecent, enabled = !ui.busy, primary = false)
+                        Action("查看已安装的用户应用", activity::queryInstalledApps, enabled = !ui.busy, primary = false)
                         Action("查看对方当前通知", activity::queryNotifications, enabled = !ui.busy, primary = false)
                     }
                 }
@@ -141,6 +146,15 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         Action("暂停对方应用", activity::suspendPeerApp, enabled = !ui.busy)
                         Action("恢复对方应用", activity::resumePeerApp, enabled = !ui.busy, primary = false)
                         Action("恢复本机由 PairLink 暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
+                    }
+                }
+            }
+            item {
+                Section("发送普通通知") {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Input(ui.notificationTitle, { ui.notificationTitle = it }, "通知标题")
+                        Input(ui.notificationContent, { ui.notificationContent = it }, "通知内容", singleLine = false)
+                        Action("发送普通通知", activity::sendNotification, enabled = !ui.busy)
                     }
                 }
             }

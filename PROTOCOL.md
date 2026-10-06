@@ -19,8 +19,10 @@ action 可选：
 
 | action | params |
 | --- | --- |
-| get_status | 空对象 |
+| get_status | 空对象；返回设备型号、安卓版本、开机时长、当前屏幕应用、电量和授权状态 |
 | get_recent_apps | hours：1 到 24，默认 1；客户端固定查询 24 小时 |
+| get_installed_apps | 空对象；返回已安装的用户应用 | 
+| send_notification | title：1 到 128 字符；content：1 到 4096 字符；接收方必须开启发送授权 |
 | get_notifications | 空对象；接收方必须开启共享、通知共享并授予通知访问权限 |
 | shell | command：1 到 8192 字符；root、shizuku：布尔值，默认 false，不能同时为 true；timeout_seconds：1 到 30，默认 20 |
 | set_app_suspended | package_name：合法包名，最多 255 字符；suspended：布尔值，true 暂停，false 恢复；执行方式由接收方选择 |
@@ -51,6 +53,19 @@ APK 使用 `POST /api/device/result`，不用依赖原 WebSocket 仍在线：
 失败时 `ok: false`，同时返回 `error` 文本。设备也可以通过 WebSocket 发送 `type: result` 以及上述 command_id/ok/result/error 字段，设备 ID 从连接附件取得。
 
 退出码非零仍代表“执行完成”，由结果中的退出码报告程序失败。系统权限、指令格式或本机开关拒绝则使用 `failed`。
+
+## 普通通知结果
+
+`send_notification` 在接收方通知权限和发送授权有效时发布普通重要性通知。
+
+```json
+{
+  "sent": true,
+  "title": "提醒",
+  "content_length": 2,
+  "sent_at": 1791270000000
+}
+```
 
 ## 应用暂停结果
 

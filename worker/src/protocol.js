@@ -2,14 +2,20 @@ export const validId = value => typeof value === 'string' && /^[A-Za-z0-9._-]{1,
 export const validCommandId = value => typeof value === 'string' && /^[0-9a-f-]{36}$/.test(value);
 export function validateCommand(body) {
   if (!body || !validId(body.sender_id) || !validId(body.target_id) || body.sender_id === body.target_id) return null;
-  if (!['get_status', 'get_recent_apps', 'get_notifications', 'set_app_suspended', 'shell'].includes(body.action)) return null;
+  if (!['get_status', 'get_recent_apps', 'get_notifications', 'get_installed_apps', 'send_notification', 'set_app_suspended', 'shell'].includes(body.action)) return null;
   const params = body.params ?? {};
   if (typeof params !== 'object' || params === null || Array.isArray(params)) return null;
-  if (body.action === 'get_status' || body.action === 'get_notifications') return { sender_id: body.sender_id, target_id: body.target_id, action: body.action, params: {} };
+  if (body.action === 'get_status' || body.action === 'get_notifications' || body.action === 'get_installed_apps') return { sender_id: body.sender_id, target_id: body.target_id, action: body.action, params: {} };
   if (body.action === 'get_recent_apps') {
     const hours = params.hours ?? 1;
     if (!Number.isInteger(hours) || hours < 1 || hours > 24) return null;
     return { sender_id: body.sender_id, target_id: body.target_id, action: body.action, params: { hours } };
+  }
+  if (body.action === 'send_notification') {
+    if (typeof params.title !== 'string' || !params.title.trim() || params.title.length > 128 ||
+        typeof params.content !== 'string' || !params.content.trim() || params.content.length > 4096) return null;
+    return { sender_id: body.sender_id, target_id: body.target_id, action: body.action,
+      params: { title: params.title, content: params.content } };
   }
   if (body.action === 'set_app_suspended') {
     if (typeof params.package_name !== 'string' || params.package_name.length > 255 ||

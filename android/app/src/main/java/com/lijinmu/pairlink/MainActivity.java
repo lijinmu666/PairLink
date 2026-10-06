@@ -57,6 +57,7 @@ public final class MainActivity extends ComponentActivity {
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setRoot(Config.prefs(this).getBoolean("root", false));
         ui.setNotifications(Config.prefs(this).getBoolean("notifications", false));
+        ui.setSendNotifications(Config.prefs(this).getBoolean("send_notifications", false));
         ui.setShizuku(Config.prefs(this).getBoolean("shizuku", false));
         ui.setAppControl(Config.prefs(this).getBoolean("app_control", false));
         ui.setAppControlMode(AppControl.mode(this));
@@ -151,6 +152,17 @@ public final class MainActivity extends ComponentActivity {
             });
         });
     }
+    public void changeSendNotifications(boolean checked) {
+        if (!checked) {
+            Config.prefs(this).edit().putBoolean("send_notifications", false).apply();
+            refreshState(); policy();
+            return;
+        }
+        ui.confirm("允许发送普通通知", "开启后，对方可以在你的手机上发送普通系统通知。通知仍受系统通知权限和通知开关控制。", "开启", () -> {
+            Config.prefs(this).edit().putBoolean("send_notifications", true).apply();
+            refreshState(); policy();
+        });
+    }
     public void changeNotifications(boolean checked) {
         if (!checked) {
             Config.prefs(this).edit().putBoolean("notifications", false).apply();
@@ -179,6 +191,15 @@ public final class MainActivity extends ComponentActivity {
         });
     }
     public void queryStatus() { send("get_status", new JSONObject()); }
+    public void queryInstalledApps() { send("get_installed_apps", new JSONObject()); }
+    public void sendNotification() {
+        String title = ui.getNotificationTitle().trim(), content = ui.getNotificationContent().trim();
+        if (title.isEmpty() || content.isEmpty()) { toast("请输入通知标题和内容"); return; }
+        ui.confirm("发送普通通知到 " + Config.peer(this), title + "\n\n" + content, "发送", () -> {
+            try { send("send_notification", new JSONObject().put("title", title).put("content", content)); }
+            catch (Exception e) { show(e.getMessage()); }
+        });
+    }
     public void queryNotifications() { send("get_notifications", new JSONObject()); }
     public void queryRecent() {
         try { send("get_recent_apps", new JSONObject().put("hours", 24)); } catch (Exception e) { show(e.getMessage()); }
@@ -265,8 +286,9 @@ public final class MainActivity extends ComponentActivity {
             + ("shell".equals(action) ? "\nShell 可能已经执行，请勿直接重复提交。" : "");
         JSONObject r = response.getJSONObject("result");
         if ("set_app_suspended".equals(action)) return formatAppControl(r);
-        if ("get_status".equals(action)) return "对方在线\n电量：" + r.optInt("battery_percent") + "%\n充电：" + (r.optBoolean("charging") ? "是" : "否")
-            + "\nShell：" + (r.optBoolean("shell_enabled") ? "开启" : "关闭") + "\nroot：" + (r.optBoolean("root_enabled") ? "开启" : "关闭");
+        if ("send_notification".equals(action)) return "普通通知已发送\n标题：" + r.optString("title");
+        if ("get_installed_apps".equals(action)) return formatInstalledApps(r);
+        if ("get_status".equals(action)) return formatDeviceStatus(r);
         if ("shell".equals(action)) return "执行方式：" + ("shizuku".equals(r.optString("backend")) ? "Shizuku / Sui（UID " + r.optInt("shizuku_uid", -1) + "）" : r.optBoolean("root") ? "root" : "普通应用")
             + "\n退出码：" + r.optInt("exit_code") + "\n超时：" + r.optBoolean("timed_out") + "\n取消：" + r.optBoolean("cancelled")
             + "\n输出截断：" + r.optBoolean("truncated") + "\n\n标准输出\n" + r.optString("stdout") + "\n错误输出\n" + r.optString("stderr");
@@ -283,6 +305,32 @@ public final class MainActivity extends ComponentActivity {
             text.append(packageName).append("\n").append(f.format(new Date(item.getLong("last_opened_at")))).append("\n");
         }
         if (apps.length() == 0) text.append("暂无记录");
+        if (result.optBoolean("truncated")) text.append("\\n列表过长，已截断。");
+        return text.toString();
+    }
+    private String formatDeviceStatus(JSONObject r) throws Exception {
+        JSONObject current = r.optJSONObject("current_app");
+        String app = current == null ? "未知" : current.optString("app_name", "未知");
+        String pkg = current == null ? "" : current.optString("package_name", "");
+        long uptime = r.optLong("uptime_ms", 0);
+        long totalSeconds = uptime / 1000, days = totalSeconds / 86400;
+        long hours = (totalSeconds % 86400) / 3600, minutes = (totalSeconds % 3600) / 60;
+        return "对方在线\n设备型号：" + r.optString("device_model", "未知")
+            + "\n安卓版本：" + r.optString("android_version", "未知") + "（API " + r.optInt("android_sdk", 0) + "）"
+            + "\n开机时间：" + (days > 0 ? days + "天 " : "") + hours + "小时 " + minutes + "分钟"
+            + "\n当前屏幕应用：" + app + (pkg.isEmpty() ? "" : "\n包名：" + pkg)
+            + "\n电量：" + r.optInt("battery_percent") + "%"
+            + "\n充电：" + (r.optBoolean("charging") ? "是" : "否")
+            + "\nShell：" + (r.optBoolean("shell_enabled") ? "开启" : "关闭")
+            + "\nroot：" + (r.optBoolean("root_enabled") ? "开启" : "关闭");
+    }
+    private String formatInstalledApps(JSONObject result) throws Exception {
+        JSONArray apps = result.getJSONArray("apps");
+        StringBuilder text = new StringBuilder("已安装的用户应用（" + apps.length() + " 个）\n");
+        for (int i = 0; i < apps.length(); i++) {
+            JSONObject item = apps.getJSONObject(i);
+            text.append("\n").append(item.optString("app_name", item.optString("package_name"))).append("\n").append(item.getString("package_name")).append("\n");
+        }
         return text.toString();
     }
     private String formatAppControl(JSONObject result) {
