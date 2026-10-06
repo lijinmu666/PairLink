@@ -182,30 +182,30 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                             Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往设置页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         item {
-                            Section("暂停与恢复对方应用") {
+                            Section("暂停与恢复应用") {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Input(ui.targetPackage, { ui.targetPackage = it }, "对方应用包名，例如 com.example.app")
-                                    Action("暂停对方应用", activity::suspendPeerApp, enabled = !ui.busy)
-                                    Action("恢复对方应用", activity::resumePeerApp, enabled = !ui.busy, primary = false)
+                                    Input(ui.targetPackage, { ui.targetPackage = it }, "对方设备中的应用包名，例如 com.example.kskblzdjd")
+                                    Action("暂停", activity::suspendPeerApp, enabled = !ui.busy)
+                                    Action("恢复", activity::resumePeerApp, enabled = !ui.busy, primary = false)
                     }
                 }
             }
             item {
-                Section("发送普通通知") {
+                Section("发送系统通知") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Input(ui.notificationTitle, { ui.notificationTitle = it }, "通知标题")
-                        Input(ui.notificationContent, { ui.notificationContent = it }, "通知内容", singleLine = false)
-                        Action("发送普通通知", activity::sendNotification, enabled = !ui.busy)
+                        Input(ui.notificationTitle, { ui.notificationTitle = it }, "标题")
+                        Input(ui.notificationContent, { ui.notificationContent = it }, "内容", singleLine = false)
+                        Action("发送", activity::sendNotification, enabled = !ui.busy)
                     }
                 }
             }
             item {
                 Section("远程 Shell") {
                     Column(Modifier.padding(16.dp)) {
-                        Input(ui.script, { ui.script = it }, "输入命令，例如 id 或 pwd", singleLine = false)
+                        Input(ui.script, { ui.script = it }, "输入命令，例如 whoami", singleLine = false)
                     }
-                    SwitchPreference(title = "本次请求使用对方的 root 权限", checked = ui.sendRoot, onCheckedChange = { ui.sendRoot = it; if (it) ui.sendShizuku = false })
-                    SwitchPreference(title = "本次请求使用对方的 Shizuku / Sui", checked = ui.sendShizuku, onCheckedChange = { ui.sendShizuku = it; if (it) ui.sendRoot = false })
+                    SwitchPreference(title = "使用对方的 root 权限", checked = ui.sendRoot, onCheckedChange = { ui.sendRoot = it; if (it) ui.sendShizuku = false })
+                    SwitchPreference(title = "使用对方的 Shizuku / Sui", checked = ui.sendShizuku, onCheckedChange = { ui.sendShizuku = it; if (it) ui.sendRoot = false })
                     Column(Modifier.padding(16.dp)) {
                         Action("执行命令", activity::executeShell, enabled = !ui.busy)
                     }
@@ -219,7 +219,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 Spacer(Modifier.height(8.dp))
                                 Text("你的手机，与对方保持连接", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                 Spacer(Modifier.height(12.dp))
-                                SwitchPreference(title = "允许对方查询此手机", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
+                                SwitchPreference(title = "允许对方查询此设备", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
                             }
                         }
                         item {
@@ -230,7 +230,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     Input(ui.peer, { ui.peer = it }, "对方的设备 ID", enabled = !ui.sharing)
                                     Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
                                     Action("测试服务器连接", activity::testConnection, enabled = !ui.busy, primary = false)
-                                    Action("查看本机连接与执行记录", activity::showLogs, primary = false)
+                                    Action("查看记录", activity::showLogs, primary = false)
                                     Action("清除记录", activity::clearLogs, primary = false)
                     }
                 }
