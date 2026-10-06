@@ -1,5 +1,6 @@
 package com.lijinmu.pairlink
 
+import android.os.Build
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
@@ -47,6 +48,7 @@ class UiState {
     var appControl by mutableStateOf(false)
     var appControlMode by mutableStateOf("device_owner")
     var privilegeStatus by mutableStateOf("")
+    var privilegeMode by mutableStateOf("无特权")
     var sharing by mutableStateOf(false)
     var shell by mutableStateOf(false)
     var root by mutableStateOf(false)
@@ -121,8 +123,9 @@ object PairLinkUi {
 @Composable
 private fun Screen(activity: MainActivity, ui: UiState) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    val tabs = listOf("查询", "操作", "设置")
+    val tabs = listOf("概览", "查询", "操作", "设置")
     val listStates = listOf(
+        rememberLazyListState(),
         rememberLazyListState(),
         rememberLazyListState(),
         rememberLazyListState(),
@@ -164,6 +167,39 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 when (selectedTab) {
                     0 -> {
                         item {
+                            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
+                                Text(ui.connection, color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.title2)
+                                Spacer(Modifier.height(8.dp))
+                                Text("你的手机，与对方保持连接", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            }
+                        }
+                        item {
+                            Section("本机信息") {
+                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    OverviewField("设备型号", listOf(Build.BRAND.trim(), Build.MODEL.trim()).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "未知" })
+                                    OverviewField("安卓版本", Build.VERSION.RELEASE)
+                                }
+                            }
+                        }
+                        item {
+                            Section("设备 ID") {
+                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    OverviewField("本机 ID", ui.own.ifBlank { "未设置" })
+                                    OverviewField("对方 ID", ui.peer.ifBlank { "未设置" })
+                                }
+                            }
+                        }
+                        item {
+                            Section("共享与权限") {
+                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    OverviewField("允许对方查询此手机", if (ui.sharing) "已开启" else "未开启")
+                                    OverviewField("权限模式", ui.privilegeMode)
+                                }
+                            }
+                        }
+                    }
+                    1 -> {
+                        item {
                             Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往设置页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         item {
@@ -177,7 +213,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
                     }
-                    1 -> {
+                    2 -> {
                         item {
                             Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往设置页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
@@ -212,18 +248,10 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
                     }
-                    2 -> {
-                        item {
-                            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
-                                Text(ui.connection, color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.title2)
-                                Spacer(Modifier.height(8.dp))
-                                Text("你的手机，与对方保持连接", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                Spacer(Modifier.height(12.dp))
-                                SwitchPreference(title = "允许对方查询此设备", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
-                            }
-                        }
+                    3 -> {
                         item {
                             Section("连接设置") {
+                                SwitchPreference(title = "允许对方查询此设备", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Input(ui.server, { ui.server = it }, "服务器 HTTPS 根地址", enabled = !ui.sharing)
                                     Input(ui.own, { ui.own = it }, "自己的设备 ID", enabled = !ui.sharing)
@@ -312,6 +340,14 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OverviewField(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
+        SelectionContainer { Text(value) }
     }
 }
 
