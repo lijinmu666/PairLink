@@ -294,7 +294,7 @@ public final class MainActivity extends ComponentActivity {
             + "\n输出截断：" + r.optBoolean("truncated") + "\n\n标准输出\n" + r.optString("stdout") + "\n错误输出\n" + r.optString("stderr");
         if ("get_notifications".equals(action)) return formatNotifications(r);
         JSONArray apps = r.getJSONArray("apps");
-        StringBuilder text = new StringBuilder("最近 " + r.optInt("hours", 24) + " 小时使用的应用（每个应用显示最近一次打开时间）\n");
+        StringBuilder text = new StringBuilder("过去 " + r.optInt("hours", 24) + " 小时应用使用情况（按前台使用时长排序）\n");
         SimpleDateFormat f = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA);
         for (int i = 0; i < apps.length(); i++) {
             JSONObject item = apps.getJSONObject(i);
@@ -302,10 +302,22 @@ public final class MainActivity extends ComponentActivity {
             String appName = item.optString("app_name", packageName);
             text.append("\n");
             if (!appName.isEmpty() && !appName.equals(packageName)) text.append(appName).append("\n");
-            text.append(packageName).append("\n").append(f.format(new Date(item.getLong("last_opened_at")))).append("\n");
+            text.append(packageName).append("\n使用时长：");
+            if (item.has("usage_duration_ms") && !item.isNull("usage_duration_ms")) {
+                long seconds = Math.max(0, item.getLong("usage_duration_ms")) / 1000;
+                long hours = seconds / 3600, minutes = seconds % 3600 / 60;
+                if (hours > 0) text.append(hours).append("小时 ");
+                if (minutes > 0 || hours > 0) text.append(minutes).append("分钟 ");
+                text.append(seconds % 60).append("秒");
+            } else text.append("未知");
+            text.append("\n最近打开：");
+            if (item.has("last_opened_at") && !item.isNull("last_opened_at"))
+                text.append(f.format(new Date(item.getLong("last_opened_at"))));
+            else text.append("未知");
+            text.append("\n");
         }
         if (apps.length() == 0) text.append("暂无记录");
-        if (r.optBoolean("truncated")) text.append("\\n列表过长，已截断。");
+        if (r.optBoolean("truncated")) text.append("\n列表过长，已截断。");
         return text.toString();
     }
     private String formatDeviceStatus(JSONObject r) throws Exception {
