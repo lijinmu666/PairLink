@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
@@ -124,7 +125,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 Section("查询对方") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Action("查看在线状态与电量", activity::queryStatus, enabled = !ui.busy)
-                        Action("查看最近 24 小时使用的应用", activity::queryRecent, enabled = !ui.busy, primary = false)
+                        Action("查看过去 24 小时应用使用时长", activity::queryRecent, enabled = !ui.busy, primary = false)
                         Action("查看已安装的用户应用", activity::queryInstalledApps, enabled = !ui.busy, primary = false)
                         Action("查看对方当前通知", activity::queryNotifications, enabled = !ui.busy, primary = false)
                     }
@@ -134,10 +135,14 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 Section("应用暂停与恢复") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(ui.privilegeStatus)
-                        Text("本机接受暂停请求时使用：" + AppControl.label(ui.appControlMode))
-                        Action("使用设备所有者", { activity.selectAppControlMode("device_owner") }, primary = ui.appControlMode == "device_owner")
-                        Action("使用 Shizuku / Sui", { activity.selectAppControlMode("shizuku") }, primary = ui.appControlMode == "shizuku")
-                        Action("使用 root", { activity.selectAppControlMode("root") }, primary = ui.appControlMode == "root")
+                        val modes = listOf("device_owner", "shizuku", "root")
+                        OverlayDropdownPreference(
+                            title = "应用暂停执行方式",
+                            summary = "本机接受暂停请求时使用",
+                            items = listOf("设备所有者", "Shizuku / Sui", "root"),
+                            selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
+                            onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
+                        )
                         Action("查看设备所有者激活说明", activity::ownerInstructions, primary = false)
                     }
                     SwitchPreference(title = "允许对方暂停和恢复应用", summary = "默认关闭，执行方式由本机选择", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
