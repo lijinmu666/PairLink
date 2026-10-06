@@ -141,8 +141,8 @@ private fun Screen(activity: MainActivity, ui: UiState) {
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = tabs[selectedTab],
-                largeTitle = tabs[selectedTab],
+                title = "PairLink",
+                largeTitle = "PairLink",
                 bottomContent = {
                     TabRow(
                         tabs = tabs,
