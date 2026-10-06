@@ -7,6 +7,8 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
 import org.json.JSONObject;
 
 final class NotificationSender {
@@ -19,11 +21,15 @@ final class NotificationSender {
             throw new Exception("本机尚未授予通知权限");
         NotificationManager manager = c.getSystemService(NotificationManager.class);
         if (manager == null || !manager.areNotificationsEnabled()) throw new Exception("本机通知已关闭");
-        String channelId = "pairlink_messages";
-        manager.createNotificationChannel(new NotificationChannel(channelId, "PairLink 消息", NotificationManager.IMPORTANCE_DEFAULT));
+        String channelId = "pairlink_messages_v2";
+        NotificationChannel channel = new NotificationChannel(channelId, "PairLink 消息", NotificationManager.IMPORTANCE_HIGH);
+        channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+            new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+        manager.createNotificationChannel(channel);
         int id = (int)(System.currentTimeMillis() & 0x7fffffff);
         Notification notification = new Notification.Builder(c, channelId).setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title).setContentText(content).setStyle(new Notification.BigTextStyle().bigText(content))
+            .setCategory(Notification.CATEGORY_MESSAGE).setContentTitle(title).setContentText(content).setStyle(new Notification.BigTextStyle().bigText(content))
             .setAutoCancel(true).build();
         manager.notify(id, notification);
         return new JSONObject().put("sent", true).put("title", title).put("content_length", content.length()).put("sent_at", System.currentTimeMillis());
