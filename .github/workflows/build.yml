@@ -19,7 +19,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.7.1'
-      - run: sdkmanager 'platforms;android-37' 'build-tools;36.0.0'
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - run: |
           mkdir -p /tmp/pairlink-shell-tests
           javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/ShellRunner.java android/test/ShellRunnerTest.java
