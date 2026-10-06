@@ -1,5 +1,7 @@
 name: 编译与验证
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
