@@ -13,6 +13,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -399,7 +405,11 @@ private fun ResultScreen(page: ResultPage, onBack: () -> Unit) {
             TopAppBar(
                 title = page.title,
                 largeTitle = page.title,
-                navigationIcon = { TextButton("返回", onBack) },
+                navigationIcon = {
+                    IconButton(onClick = onBack, minWidth = 48.dp, minHeight = 48.dp) {
+                        Icon(BackArrow, contentDescription = "返回", tint = MiuixTheme.colorScheme.onSurface)
+                    }
+                },
             )
         },
     ) { padding ->
@@ -439,4 +449,28 @@ private fun ResultScreen(page: ResultPage, onBack: () -> Unit) {
             }
         }
     }
+}
+
+private val BackArrow: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "BackArrow",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f,
+        autoMirror = true,
+    ).apply {
+        path(
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        ) {
+            moveTo(19f, 12f)
+            lineTo(5f, 12f)
+            moveTo(12f, 5f)
+            lineTo(5f, 12f)
+            lineTo(12f, 19f)
+        }
+    }.build()
 }
