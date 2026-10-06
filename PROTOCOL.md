@@ -22,7 +22,8 @@ action 可选：
 | get_status | 空对象 |
 | get_recent_apps | hours：1 到 24，默认 1；客户端固定查询 24 小时 |
 | get_notifications | 空对象；接收方必须开启共享、通知共享并授予通知访问权限 |
-| shell | command：1 到 8192 字符；root：布尔值，默认 false；timeout_seconds：1 到 30，默认 20 |
+| shell | command：1 到 8192 字符；root、shizuku：布尔值，默认 false，不能同时为 true；timeout_seconds：1 到 30，默认 20 |
+| set_app_suspended | package_name：合法包名，最多 255 字符；suspended：布尔值，true 暂停，false 恢复；执行方式由接收方选择 |
 
 返回 202，包含 `command_id`、`status`、`created_at` 和 `deadline_at`。服务端添加 `type: command` 后转发到目标 WebSocket。一个目标同时只允许一个未过期请求；离线不积压命令。
 
@@ -50,6 +51,28 @@ APK 使用 `POST /api/device/result`，不用依赖原 WebSocket 仍在线：
 失败时 `ok: false`，同时返回 `error` 文本。设备也可以通过 WebSocket 发送 `type: result` 以及上述 command_id/ok/result/error 字段，设备 ID 从连接附件取得。
 
 退出码非零仍代表“执行完成”，由结果中的退出码报告程序失败。系统权限、指令格式或本机开关拒绝则使用 `failed`。
+
+## 应用暂停结果
+
+`set_app_suspended` 沿用已有通道；请求中的执行方式字段会被忽略，不能由发送方强制选择 root。
+
+```json
+{
+  "package_name": "com.example.app",
+  "app_name": "应用",
+  "requested_suspended": true,
+  "suspended": true,
+  "backend": "device_owner",
+  "note": "",
+  "applied_at": 1791270000000
+}
+```
+
+`backend` 为 `device_owner`、`shizuku` 或 `root`。`suspended` 是执行后确认的实际状态；恢复时若仍被其他来源暂停，状态仍为 true，`note` 会说明。本机暂停共享开关默认关闭；接收方还需满足所选系统权限。系统拒绝、权限不足或未获取实际状态时回传 `failed`。
+
+## Shizuku Shell
+
+当 `shizuku: true` 时，接收方必须开启 Shell、开启 Shizuku/Sui 授权开关，并已通过系统授权。与 `root: true` 互斥，不会自动降级或改用其他执行方式。结果增加 `backend`（app/root/shizuku）与 `shizuku_uid`（仅 Shizuku 有效，其他为 -1），原有输出和状态字段保持一致。
 
 ## 当前通知结果
 

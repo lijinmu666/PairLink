@@ -19,6 +19,7 @@ final class Config {
     static boolean sharing(Context c) { return prefs(c).getBoolean("sharing", false); }
     static boolean shell(Context c) { return sharing(c) && prefs(c).getBoolean("shell", false); }
     static boolean root(Context c) { return shell(c) && prefs(c).getBoolean("root", false); }
+    static boolean shizuku(Context c) { return sharing(c) && prefs(c).getBoolean("shizuku", false) && ShizukuBridge.granted(); }
     static boolean validId(String s) { return s.matches("[A-Za-z0-9._-]{1,64}"); }
     static String normalize(String s) {
         s = s.trim();

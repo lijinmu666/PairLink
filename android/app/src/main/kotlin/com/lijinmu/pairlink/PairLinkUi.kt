@@ -24,6 +24,12 @@ class UiState {
     var own by mutableStateOf("")
     var peer by mutableStateOf("")
     var script by mutableStateOf("")
+    var targetPackage by mutableStateOf("")
+    var shizuku by mutableStateOf(false)
+    var sendShizuku by mutableStateOf(false)
+    var appControl by mutableStateOf(false)
+    var appControlMode by mutableStateOf("device_owner")
+    var privilegeStatus by mutableStateOf("")
     var sharing by mutableStateOf(false)
     var shell by mutableStateOf(false)
     var root by mutableStateOf(false)
@@ -95,6 +101,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 Section("共享与授权") {
                     SwitchPreference(title = "允许对方查询此手机", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
                     SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
+                    SwitchPreference(title = "允许使用 Shizuku / Sui", summary = "本机确认并授权后，用于 Shell 和应用暂停", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
                     SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
                     SwitchPreference(title = "允许对方查看通知", summary = if (ui.notificationAccess) "仅在查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
                     if (!ui.notificationAccess) {
@@ -119,11 +126,31 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
             item {
+                Section("应用暂停与恢复") {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(ui.privilegeStatus)
+                        Text("本机接受暂停请求时使用：" + AppControl.label(ui.appControlMode))
+                        Action("使用设备所有者", { activity.selectAppControlMode("device_owner") }, primary = ui.appControlMode == "device_owner")
+                        Action("使用 Shizuku / Sui", { activity.selectAppControlMode("shizuku") }, primary = ui.appControlMode == "shizuku")
+                        Action("使用 root", { activity.selectAppControlMode("root") }, primary = ui.appControlMode == "root")
+                        Action("查看设备所有者激活说明", activity::ownerInstructions, primary = false)
+                    }
+                    SwitchPreference(title = "允许对方暂停和恢复应用", summary = "默认关闭，执行方式由本机选择", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Input(ui.targetPackage, { ui.targetPackage = it }, "对方应用包名，例如 com.example.app")
+                        Action("暂停对方应用", activity::suspendPeerApp, enabled = !ui.busy)
+                        Action("恢复对方应用", activity::resumePeerApp, enabled = !ui.busy, primary = false)
+                        Action("恢复本机由 PairLink 暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
+                    }
+                }
+            }
+            item {
                 Section("远程 Shell") {
                     Column(Modifier.padding(16.dp)) {
                         Input(ui.script, { ui.script = it }, "输入命令，例如 id 或 pwd", singleLine = false)
                     }
-                    SwitchPreference(title = "本次请求使用对方的 root 权限", checked = ui.sendRoot, onCheckedChange = { ui.sendRoot = it })
+                    SwitchPreference(title = "本次请求使用对方的 root 权限", checked = ui.sendRoot, onCheckedChange = { ui.sendRoot = it; if (it) ui.sendShizuku = false })
+                    SwitchPreference(title = "本次请求使用对方的 Shizuku / Sui", checked = ui.sendShizuku, onCheckedChange = { ui.sendShizuku = it; if (it) ui.sendRoot = false })
                     Column(Modifier.padding(16.dp)) {
                         Action("执行命令", activity::executeShell, enabled = !ui.busy)
                     }

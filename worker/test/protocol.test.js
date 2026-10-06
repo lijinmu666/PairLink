@@ -40,3 +40,21 @@ test('当前通知查询不接受自定义参数，通知结果通过现有通�
   assert.equal(acceptResult(pending, 'alice', { ok: true, result }, 50), null);
   assert.equal(acceptResult(pending, 'bob', { ok: false, error: '对方未开启通知共享' }, 50).status, 'failed');
 });
+test('暂停和恢复应用只接受合法包名和布尔状态，执行方式由接收方选择', () => {
+  const good = { ...base, action: 'set_app_suspended', params: { package_name: 'com.example.app', suspended: true, backend: 'root' } };
+  assert.deepEqual(validateCommand(good).params, { package_name: 'com.example.app', suspended: true });
+  assert.equal(validateCommand({ ...good, params: { package_name: 'com.example.app', suspended: false } }).params.suspended, false);
+  for (const pkg of ['com.example;id', '../app', '-com.app', 'com..app', '', 'x'.repeat(256)]) {
+    assert.equal(validateCommand({ ...good, params: { package_name: pkg, suspended: true } }), null);
+  }
+  for (const suspended of ['false', 1, null, undefined]) {
+    assert.equal(validateCommand({ ...good, params: { package_name: 'com.example.app', suspended } }), null);
+  }
+});
+test('Shizuku Shell 默认关闭，不能与 root 同时请求', () => {
+  const good = { ...base, action: 'shell', params: { command: 'id', shizuku: true } };
+  assert.equal(validateCommand(good).params.shizuku, true);
+  assert.equal(validateCommand({ ...good, params: { command: 'id' } }).params.shizuku, false);
+  assert.equal(validateCommand({ ...good, params: { command: 'id', shizuku: 'true' } }), null);
+  assert.equal(validateCommand({ ...good, params: { command: 'id', shizuku: true, root: true } }), null);
+});

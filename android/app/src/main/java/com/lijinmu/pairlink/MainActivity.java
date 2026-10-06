@@ -12,11 +12,24 @@ import java.util.Date;
 import java.text.SimpleDateFormat;
 import java.util.Locale;
 import java.util.concurrent.*;
+import rikka.shizuku.Shizuku;
 
 public final class MainActivity extends ComponentActivity {
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final UiState ui = new UiState();
     private volatile boolean busy;
+    private boolean awaitingShizuku;
+    private final Shizuku.OnRequestPermissionResultListener shizukuPermissionResult = (code, result) -> {
+        if (code != 200) return;
+        runOnUiThread(() -> {
+            if (isDestroyed()) return;
+            if (awaitingShizuku && result == PackageManager.PERMISSION_GRANTED)
+                Config.prefs(this).edit().putBoolean("shizuku", true).apply();
+            awaitingShizuku = false;
+            refreshState();
+            toast(result == PackageManager.PERMISSION_GRANTED ? "Shizuku / Sui 已授权" : "Shizuku / Sui 授权被拒绝");
+        });
+    };
     private final Handler permissionHandler = new Handler(Looper.getMainLooper());
     private final Runnable permissionRefresh = new Runnable() {
         @Override public void run() {
@@ -27,6 +40,7 @@ public final class MainActivity extends ComponentActivity {
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (prefs, key) -> runOnUiThread(this::refreshState);
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionResult);
         ui.setServer(Config.server(this)); ui.setOwn(Config.own(this)); ui.setPeer(Config.peer(this));
         refreshState();
         Config.prefs(this).registerOnSharedPreferenceChangeListener(preferenceListener);
@@ -35,6 +49,7 @@ public final class MainActivity extends ComponentActivity {
     private void refreshAccessPermissions() {
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
         ui.setNotificationAccess(NotificationReaderService.hasAccess(this));
+        ui.setPrivilegeStatus(ShizukuBridge.status() + "\n设备所有者：" + (AppControl.isOwner(this) ? "已激活" : "未激活"));
     }
     private void refreshState() {
         refreshAccessPermissions();
@@ -42,6 +57,9 @@ public final class MainActivity extends ComponentActivity {
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setRoot(Config.prefs(this).getBoolean("root", false));
         ui.setNotifications(Config.prefs(this).getBoolean("notifications", false));
+        ui.setShizuku(Config.prefs(this).getBoolean("shizuku", false));
+        ui.setAppControl(Config.prefs(this).getBoolean("app_control", false));
+        ui.setAppControlMode(AppControl.mode(this));
         ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
     }
     public void changeSharing(boolean checked) {
@@ -66,6 +84,72 @@ public final class MainActivity extends ComponentActivity {
         if (!checked) { Config.prefs(this).edit().putBoolean("root", false).apply(); refreshState(); policy(); return; }
         if (!Config.prefs(this).getBoolean("shell", false)) { toast("请先开启远程 Shell"); return; }
         ui.confirm("授权 root 模式", "将请求本机 root 管理器授权。成功后，对方可以以 root 权限执行命令。", "请求授权", this::authorizeRoot);
+    }
+    public void changeShizuku(boolean checked) {
+        if (!checked) {
+            awaitingShizuku = false;
+            Config.prefs(this).edit().putBoolean("shizuku", false).apply();
+            refreshState(); policy(); ShizukuBridge.cancel();
+            return;
+        }
+        ui.confirm("授权 Shizuku / Sui", "允许 PairLink 通过 Shizuku / Sui 执行已开启共享的 Shell 和应用暂停请求。实际权限由 Shizuku / Sui 的启动身份决定。", "授权", () -> {
+            if (!ShizukuBridge.available()) { toast("请先启动 Shizuku 或安装并启用 Sui"); return; }
+            if (ShizukuBridge.granted()) {
+                Config.prefs(this).edit().putBoolean("shizuku", true).apply(); refreshState(); return;
+            }
+            try {
+                if (Shizuku.shouldShowRequestPermissionRationale()) { toast("请在 Shizuku / Sui 管理器中为 PairLink 授权"); return; }
+                awaitingShizuku = true; Shizuku.requestPermission(200);
+            } catch (RuntimeException e) { awaitingShizuku = false; toast("Shizuku / Sui 授权请求失败"); }
+        });
+    }
+    public void selectAppControlMode(String mode) {
+        if (!mode.equals("device_owner") && !mode.equals("shizuku") && !mode.equals("root")) return;
+        if (mode.equals("device_owner") && !AppControl.isOwner(this)) { ownerInstructions(); return; }
+        if (mode.equals("shizuku") && (!ShizukuBridge.granted() || !Config.prefs(this).getBoolean("shizuku", false))) {
+            toast("请先开启并授权 Shizuku / Sui"); return;
+        }
+        if (mode.equals("root") && !Config.prefs(this).getBoolean("root", false)) { toast("请先开启 Shell 并单独授权 root"); return; }
+        Config.prefs(this).edit().putString("app_control_mode", mode).apply();
+        refreshState(); policy();
+    }
+    public void ownerInstructions() {
+        ui.message("设备所有者", "只有 PairLink 自身成为设备所有者才能使用此模式，普通设备管理员权限不够。\n\n可在满足系统设备所有者配置条件时，通过 ADB 执行：\n\nadb shell dpm set-device-owner com.lijinmu.pairlink/.PairLinkAdminReceiver\n\n已存在其他设备所有者或账号等情况下，系统可能拒绝。应用不会自动激活设备所有者。");
+    }
+    public void changeAppControl(boolean checked) {
+        if (!checked) {
+            Config.prefs(this).edit().putBoolean("app_control", false).apply(); refreshState(); policy(); return;
+        }
+        ui.confirm("允许暂停应用", "对方可以暂停和恢复指定应用。本机选择的执行方式为：" + AppControl.label(AppControl.mode(this))
+            + "。恢复本机按钮可在关闭共享后使用。关闭授权不会自动恢复已暂停应用。", "开启", () -> {
+            Config.prefs(this).edit().putBoolean("app_control", true).apply(); refreshState();
+        });
+    }
+    public void suspendPeerApp() { changePeerApp(true); }
+    public void resumePeerApp() { changePeerApp(false); }
+    private void changePeerApp(boolean suspended) {
+        String pkg = ui.getTargetPackage().trim();
+        if (pkg.length() > 255 || !AppControl.PACKAGE.matcher(pkg).matches()) { toast("请输入有效的应用包名"); return; }
+        ui.confirm(suspended ? "暂停对方应用" : "恢复对方应用", pkg, suspended ? "暂停" : "恢复", () -> {
+            try { send("set_app_suspended", new JSONObject().put("package_name", pkg).put("suspended", suspended)); }
+            catch (Exception e) { show(e.getMessage()); }
+        });
+    }
+    public void restoreLocalApps() {
+        if (busy) { toast("请等待当前请求完成"); return; }
+        if (AppControl.tracked(this).isEmpty()) { toast("本机没有由 PairLink 记录的暂停应用"); return; }
+        ui.confirm("恢复本机应用", "恢复以下由 PairLink 记录的暂停应用：\n" + String.join("\n", AppControl.tracked(this)), "恢复", () -> {
+            busy = true; ui.setBusy(true); show("正在恢复本机应用……");
+            network.execute(() -> {
+                try {
+                    JSONArray results = AppControl.restoreLocal(this).getJSONArray("results");
+                    StringBuilder text = new StringBuilder();
+                    for (int i = 0; i < results.length(); i++) text.append(formatAppControl(results.getJSONObject(i))).append("\n\n");
+                    show(text.toString());
+                } catch (Exception e) { show("恢复失败：" + e.getMessage()); }
+                finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
+            });
+        });
     }
     public void changeNotifications(boolean checked) {
         if (!checked) {
@@ -102,9 +186,10 @@ public final class MainActivity extends ComponentActivity {
     public void executeShell() {
         String command = ui.getScript();
         boolean requestRoot = ui.getSendRoot();
+        boolean requestShizuku = ui.getSendShizuku();
         if (command.trim().isEmpty()) { toast("请输入命令"); return; }
         ui.confirm("执行到 " + Config.peer(this), command, "执行", () -> {
-            try { send("shell", new JSONObject().put("command", command).put("root", requestRoot).put("timeout_seconds", 20)); }
+            try { send("shell", new JSONObject().put("command", command).put("root", requestRoot).put("shizuku", requestShizuku).put("timeout_seconds", 20)); }
             catch (Exception e) { show(e.getMessage()); }
         });
     }
@@ -179,9 +264,11 @@ public final class MainActivity extends ComponentActivity {
         if (!"completed".equals(state)) return "请求超时或仍在执行。指令 ID：" + response.optString("command_id")
             + ("shell".equals(action) ? "\nShell 可能已经执行，请勿直接重复提交。" : "");
         JSONObject r = response.getJSONObject("result");
+        if ("set_app_suspended".equals(action)) return formatAppControl(r);
         if ("get_status".equals(action)) return "对方在线\n电量：" + r.optInt("battery_percent") + "%\n充电：" + (r.optBoolean("charging") ? "是" : "否")
             + "\nShell：" + (r.optBoolean("shell_enabled") ? "开启" : "关闭") + "\nroot：" + (r.optBoolean("root_enabled") ? "开启" : "关闭");
-        if ("shell".equals(action)) return "退出码：" + r.optInt("exit_code") + "\n超时：" + r.optBoolean("timed_out") + "\n取消：" + r.optBoolean("cancelled")
+        if ("shell".equals(action)) return "执行方式：" + ("shizuku".equals(r.optString("backend")) ? "Shizuku / Sui（UID " + r.optInt("shizuku_uid", -1) + "）" : r.optBoolean("root") ? "root" : "普通应用")
+            + "\n退出码：" + r.optInt("exit_code") + "\n超时：" + r.optBoolean("timed_out") + "\n取消：" + r.optBoolean("cancelled")
             + "\n输出截断：" + r.optBoolean("truncated") + "\n\n标准输出\n" + r.optString("stdout") + "\n错误输出\n" + r.optString("stderr");
         if ("get_notifications".equals(action)) return formatNotifications(r);
         JSONArray apps = r.getJSONArray("apps");
@@ -197,6 +284,12 @@ public final class MainActivity extends ComponentActivity {
         }
         if (apps.length() == 0) text.append("暂无记录");
         return text.toString();
+    }
+    private String formatAppControl(JSONObject result) {
+        if (result.has("error")) return result.optString("package_name") + "\n恢复失败：" + result.optString("error");
+        return result.optString("app_name", result.optString("package_name")) + "\n" + result.optString("package_name")
+            + "\n当前状态：" + (result.optBoolean("suspended") ? "已暂停" : "未暂停")
+            + "\n执行方式：" + AppControl.label(result.optString("backend")) + "\n" + result.optString("note");
     }
     private String formatNotifications(JSONObject result) throws Exception {
         JSONArray notifications = result.getJSONArray("notifications");
@@ -236,6 +329,7 @@ public final class MainActivity extends ComponentActivity {
     }
     @Override public void onDestroy() {
         permissionHandler.removeCallbacks(permissionRefresh);
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionResult);
         Config.prefs(this).unregisterOnSharedPreferenceChangeListener(preferenceListener);
         network.shutdown(); super.onDestroy();
     }
