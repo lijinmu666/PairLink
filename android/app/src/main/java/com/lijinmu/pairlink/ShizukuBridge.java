@@ -12,6 +12,7 @@ import rikka.shizuku.Shizuku;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 
@@ -47,6 +48,8 @@ final class ShizukuBridge {
         Handler main = new Handler(Looper.getMainLooper());
         CountDownLatch ready = new CountDownLatch(1);
         AtomicBoolean closed = new AtomicBoolean(), cancelled = new AtomicBoolean();
+        AtomicReference<String> bindError = new AtomicReference<>();
+        active = null;
         Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(new ComponentName(c, PrivilegedUserService.class))
             .daemon(false).tag("pairlink-" + UUID.randomUUID()).processNameSuffix("privileged").version(1);
         ServiceConnection connection = new ServiceConnection() {
@@ -68,11 +71,16 @@ final class ShizukuBridge {
         Runnable bind = () -> {
             if (closed.get()) { ready.countDown(); return; }
             try { Shizuku.bindUserService(args, connection); }
-            catch (RuntimeException e) { ready.countDown(); }
+            catch (RuntimeException e) {
+                bindError.set(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+                ready.countDown();
+            }
         };
         try {
             main.post(bind);
-            if (!ready.await(6, TimeUnit.SECONDS) || active == null) throw new Exception("Shizuku / Sui 服务连接失败，请稍后重试");
+            if (!ready.await(6, TimeUnit.SECONDS) || active == null)
+                throw new Exception("Shizuku / Sui 服务连接失败"
+                    + (bindError.get() == null ? "，请确认已授权 PairLink" : "：" + bindError.get()));
             if (!allowed.getAsBoolean() || !granted()) throw new Exception("特权执行授权已关闭");
             IPairLinkUserService service = active;
             watch.scheduleWithFixedDelay(() -> {
@@ -84,7 +92,14 @@ final class ShizukuBridge {
             Future<String> reply = calls.submit(() -> service.run(command, seconds));
             JSONObject data;
             try { data = new JSONObject(reply.get(seconds + 3L, TimeUnit.SECONDS)); }
-            catch (TimeoutException e) { cancelled.set(true); cancel(); throw new Exception("Shizuku / Sui 执行超时，指令可能已执行，请勿直接重复提交"); }
+            catch (TimeoutException e) {
+                cancelled.set(true); cancel();
+                throw new Exception("Shizuku / Sui 执行超时，指令可能已执行，请勿直接重复提交");
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                String message = cause == null ? e.getMessage() : cause.getMessage();
+                throw new Exception("Shizuku / Sui 执行失败：" + (message == null ? "远程服务异常" : message), cause);
+            }
             if (data.has("error")) throw new Exception(data.optString("error"));
             ShellRunner.Result result = new ShellRunner.Result();
             result.stdout = data.optString("stdout"); result.stderr = data.optString("stderr");
