@@ -18,8 +18,8 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
-      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          gradle-version: '9.7.1'
+      - run: sdkmanager 'platforms;android-37' 'build-tools;36.0.0'
       - run: |
           mkdir -p /tmp/pairlink-shell-tests
           javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/ShellRunner.java android/test/ShellRunnerTest.java
@@ -27,7 +27,7 @@ jobs:
       - run: gradle --no-daemon -p android assembleDebug lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: PairLink-0.1.0-debug
+          name: PairLink-0.2.0-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
   worker:
     runs-on: ubuntu-latest

@@ -5,94 +5,79 @@ import android.content.*;
 import android.content.pm.PackageManager;
 import android.os.*;
 import android.provider.Settings;
-import android.graphics.Color;
-import android.graphics.Typeface;
-import android.widget.*;
+import androidx.activity.ComponentActivity;
+import android.content.SharedPreferences;
 import org.json.*;
 import java.util.Date;
 import java.text.SimpleDateFormat;
 import java.util.Locale;
 import java.util.concurrent.*;
 
-public final class MainActivity extends Activity {
+public final class MainActivity extends ComponentActivity {
     private final ExecutorService network = Executors.newSingleThreadExecutor();
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private LinearLayout panel;
-    private EditText server, own, peer, script;
-    private Switch sharing, shell, root, sendRoot;
-    private TextView status, result;
-    private Button save;
+    private final UiState ui = new UiState();
     private volatile boolean busy;
-    private boolean syncing;
+    private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (prefs, key) -> runOnUiThread(this::refreshState);
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
-        ScrollView scroll = new ScrollView(this);
-        panel = new LinearLayout(this); panel.setOrientation(LinearLayout.VERTICAL); panel.setPadding(dp(20), dp(24), dp(20), dp(24));
-        scroll.addView(panel); setContentView(scroll);
-        label("PairLink", 30); label("你的手机，与对方保持连接", 14);
-        status = label("共享未开启", 14);
-        label("连接设置", 21);
-        server = field("服务器地址，例如 https://pairlink.xxx.workers.dev", false);
-        server.setText(Config.server(this));
-        own = field("自己的设备 ID", false); own.setText(Config.own(this));
-        peer = field("对方的设备 ID", false); peer.setText(Config.peer(this));
-        save = button("保存连接设置", this::saveSettings);
-        sharing = toggle("允许对方查询此手机", Config.sharing(this));
-        shell = toggle("允许对方执行 Shell", Config.prefs(this).getBoolean("shell", false));
-        root = toggle("允许对方使用 root", Config.prefs(this).getBoolean("root", false));
-        sharing.setOnCheckedChangeListener((v, checked) -> {
-            if (syncing) return;
-            if (checked && !settingsValid()) { setChecked(sharing, false); toast("请先保存有效的连接设置"); return; }
-            if (checked && Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
-                setChecked(sharing, false); requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1); return;
-            }
-            Config.prefs(this).edit().putBoolean("sharing", checked).apply();
-            if (checked) startForegroundService(new Intent(this, LinkService.class));
-            else stopService(new Intent(this, LinkService.class));
-        });
-        shell.setOnCheckedChangeListener((v, checked) -> {
-            if (syncing) return;
-            if (checked) new AlertDialog.Builder(this).setTitle("开启远程 Shell")
-                .setMessage("开启后，对方可以让此 APK 执行命令。第一版服务器没有身份验证，设备 ID 不代表身份。仅在你愿意允许操作时开启。")
-                .setNegativeButton("取消", (d, w) -> setChecked(shell, false))
-                .setPositiveButton("开启", (d, w) -> { Config.prefs(this).edit().putBoolean("shell", true).apply(); policy(); })
-                .setOnCancelListener(d -> setChecked(shell, false)).show();
-            else { Config.prefs(this).edit().putBoolean("shell", false).putBoolean("root", false).apply(); setChecked(root, false); policy(); }
-        });
-        root.setOnCheckedChangeListener((v, checked) -> {
-            if (syncing) return;
-            if (!checked) { Config.prefs(this).edit().putBoolean("root", false).apply(); policy(); return; }
-            setChecked(root, false);
-            if (!Config.prefs(this).getBoolean("shell", false)) { toast("请先开启远程 Shell"); return; }
-            new AlertDialog.Builder(this).setTitle("授权 root 模式")
-                .setMessage("将请求本机 root 管理器授权。成功后，对方可以以 root 权限执行命令。")
-                .setNegativeButton("取消", null).setPositiveButton("请求授权", (d, w) -> authorizeRoot()).show();
-        });
-        button("开启应用使用情况访问权限", () -> startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)));
-        button("测试服务器连接", () -> network.execute(() -> {
-            try { JSONObject r = Net.request(this, Config.server(this), "/health", null); show("服务器连接成功\n" + r.toString(2)); }
-            catch (Exception e) { show("连接失败：" + e.getMessage()); }
-        }));
-        label("查询对方", 21);
-        button("查看在线状态与电量", () -> send("get_status", new JSONObject()));
-        button("查看最近 1 小时使用的应用", () -> { try { send("get_recent_apps", new JSONObject().put("hours", 1)); } catch (Exception ignored) {} });
-        label("远程 Shell", 21);
-        script = field("输入命令，例如 id 或 pwd", true);
-        sendRoot = toggle("本次请求使用对方的 root 权限", false);
-        button("执行命令", () -> {
-            String command = script.getText().toString();
-            if (command.trim().isEmpty()) { toast("请输入命令"); return; }
-            new AlertDialog.Builder(this).setTitle("执行到 " + Config.peer(this)).setMessage(command)
-                .setNegativeButton("取消", null).setPositiveButton("执行", (d, w) -> {
-                    try { send("shell", new JSONObject().put("command", command).put("root", sendRoot.isChecked()).put("timeout_seconds", 20)); }
-                    catch (Exception e) { show(e.getMessage()); }
-                }).show();
-        });
-        result = label("等待操作", 15); result.setTextIsSelectable(true); result.setTypeface(Typeface.MONOSPACE);
-        button("查看本机连接与执行记录", () -> new AlertDialog.Builder(this).setTitle("本机记录")
-            .setMessage(Config.prefs(this).getString("logs", "暂无记录")).setPositiveButton("关闭", null).show());
-        label("双方都需要主动安装、配置并开启共享。第一版为单次命令执行，暂不提供交互式终端或 MCP。", 13);
+        ui.setServer(Config.server(this)); ui.setOwn(Config.own(this)); ui.setPeer(Config.peer(this));
+        refreshState();
+        Config.prefs(this).registerOnSharedPreferenceChangeListener(preferenceListener);
+        PairLinkUi.render(this, ui);
     }
+    private void refreshState() {
+        ui.setSharing(Config.sharing(this));
+        ui.setShell(Config.prefs(this).getBoolean("shell", false));
+        ui.setRoot(Config.prefs(this).getBoolean("root", false));
+        ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
+    }
+    public void changeSharing(boolean checked) {
+        if (checked && !settingsValid()) { toast("请先保存有效的连接设置"); return; }
+        if (checked && Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1); return;
+        }
+        Config.prefs(this).edit().putBoolean("sharing", checked).apply();
+        if (checked) startForegroundService(new Intent(this, LinkService.class));
+        else stopService(new Intent(this, LinkService.class));
+        refreshState();
+    }
+    public void changeShell(boolean checked) {
+        if (checked) ui.confirm("开启远程 Shell", "开启后，对方可以让此 APK 执行命令。第一版服务器没有身份验证，设备 ID 不代表身份。仅在你愿意允许操作时开启。", "开启", () -> {
+            Config.prefs(this).edit().putBoolean("shell", true).apply(); refreshState(); policy();
+        });
+        else {
+            Config.prefs(this).edit().putBoolean("shell", false).putBoolean("root", false).apply(); refreshState(); policy();
+        }
+    }
+    public void changeRoot(boolean checked) {
+        if (!checked) { Config.prefs(this).edit().putBoolean("root", false).apply(); refreshState(); policy(); return; }
+        if (!Config.prefs(this).getBoolean("shell", false)) { toast("请先开启远程 Shell"); return; }
+        ui.confirm("授权 root 模式", "将请求本机 root 管理器授权。成功后，对方可以以 root 权限执行命令。", "请求授权", this::authorizeRoot);
+    }
+    public void usagePermission() { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); }
+    public void testConnection() {
+        if (busy) { toast("请等待当前请求完成"); return; }
+        busy = true; ui.setBusy(true); show("正在测试服务器连接……");
+        network.execute(() -> {
+            try { JSONObject r = Net.request(this, Config.server(this), "/health", null); show("服务器连接成功\n" + r.toString(2) + "\n接收指令需要开启共享并显示在线。"); }
+            catch (Exception e) { show("连接失败：" + e.getMessage()); }
+            finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
+        });
+    }
+    public void queryStatus() { send("get_status", new JSONObject()); }
+    public void queryRecent() {
+        try { send("get_recent_apps", new JSONObject().put("hours", 1)); } catch (Exception e) { show(e.getMessage()); }
+    }
+    public void executeShell() {
+        String command = ui.getScript();
+        boolean requestRoot = ui.getSendRoot();
+        if (command.trim().isEmpty()) { toast("请输入命令"); return; }
+        ui.confirm("执行到 " + Config.peer(this), command, "执行", () -> {
+            try { send("shell", new JSONObject().put("command", command).put("root", requestRoot).put("timeout_seconds", 20)); }
+            catch (Exception e) { show(e.getMessage()); }
+        });
+    }
+    public void showLogs() { ui.message("本机记录", Config.prefs(this).getString("logs", "暂无记录")); }
     private void authorizeRoot() {
         network.execute(() -> {
             try {
@@ -100,7 +85,7 @@ public final class MainActivity extends Activity {
                 boolean ok = !r.timedOut && r.exitCode == 0 && r.stdout.contains("uid=0");
                 runOnUiThread(() -> {
                     if (ok && Config.prefs(this).getBoolean("shell", false)) {
-                        Config.prefs(this).edit().putBoolean("root", true).apply(); setChecked(root, true); toast("root 授权成功");
+                        Config.prefs(this).edit().putBoolean("root", true).apply(); refreshState(); toast("root 授权成功");
                     } else toast("root 授权失败或 Shell 已关闭");
                 });
             } catch (Exception e) { runOnUiThread(() -> toast("root 不可用：" + e.getMessage())); }
@@ -117,9 +102,9 @@ public final class MainActivity extends Activity {
                 && Config.validId(Config.peer(this)) && !Config.own(this).equals(Config.peer(this));
         } catch (Exception e) { return false; }
     }
-    private void saveSettings() {
+    public void saveSettings() {
         if (Config.sharing(this)) { toast("请先暂停共享再修改连接设置"); return; }
-        String s = Config.normalize(server.getText().toString()), a = own.getText().toString().trim(), b = peer.getText().toString().trim();
+        String s = Config.normalize(ui.getServer()), a = ui.getOwn().trim(), b = ui.getPeer().trim();
         try {
             okhttp3.HttpUrl url = okhttp3.HttpUrl.get(s);
             if (!"https".equals(url.scheme()) || !url.encodedPath().equals("/") || url.query() != null || url.fragment() != null
@@ -131,7 +116,7 @@ public final class MainActivity extends Activity {
     private void send(String action, JSONObject params) {
         if (busy) { toast("请等待当前请求完成"); return; }
         if (!settingsValid()) { toast("请先保存连接设置"); return; }
-        busy = true; show("正在请求对方……");
+        busy = true; ui.setBusy(true); show("正在请求对方……");
         String base = Config.server(this), sender = Config.own(this), target = Config.peer(this);
         network.execute(() -> {
             try {
@@ -146,7 +131,7 @@ public final class MainActivity extends Activity {
                 show(format(action, response));
                 Config.log(this, "请求 " + action + "：" + response.optString("status"));
             } catch (Exception e) { show("请求失败：" + e.getMessage() + "\n不要自动重发 Shell，命令可能已经执行。"); }
-            finally { busy = false; }
+            finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
         });
     }
     private String format(String action, JSONObject response) throws Exception {
@@ -170,19 +155,11 @@ public final class MainActivity extends Activity {
         if (apps.length() == 0) text.append("暂无记录");
         return text.toString();
     }
-    private void show(String s) { runOnUiThread(() -> { if (!isDestroyed()) result.setText(s); }); }
-    private void setChecked(Switch v, boolean value) { syncing = true; v.setChecked(value); syncing = false; }
-    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_LONG).show(); }
-    private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
-    private TextView label(String text, int size) { TextView v = new TextView(this); v.setText(text); v.setTextSize(size); v.setTextColor(Color.parseColor("#DFEAEF")); v.setPadding(0, dp(8), 0, dp(8)); panel.addView(v); return v; }
-    private EditText field(String hint, boolean multi) { EditText v = new EditText(this); v.setHint(hint); v.setTextColor(Color.WHITE); v.setHintTextColor(Color.GRAY); v.setSingleLine(!multi); if (multi) { v.setMinLines(3); v.setGravity(48); } panel.addView(v); return v; }
-    private Switch toggle(String title, boolean checked) { Switch v = new Switch(this); v.setText(title); v.setTextColor(Color.WHITE); v.setPadding(0, dp(10), 0, dp(10)); v.setChecked(checked); panel.addView(v); return v; }
-    private Button button(String title, Runnable action) { Button v = new Button(this); v.setText(title); v.setOnClickListener(w -> action.run()); panel.addView(v); return v; }
-    private final Runnable refresh = new Runnable() { public void run() {
-        status.setText(Config.sharing(MainActivity.this) ? Config.prefs(MainActivity.this).getString("connection", "正在连接") : "共享已关闭");
-        setChecked(sharing, Config.sharing(MainActivity.this)); handler.postDelayed(this, 1500);
-    }};
-    @Override public void onResume() { super.onResume(); handler.post(refresh); }
-    @Override public void onPause() { handler.removeCallbacks(refresh); super.onPause(); }
-    @Override public void onDestroy() { handler.removeCallbacksAndMessages(null); network.shutdown(); super.onDestroy(); }
+    private void show(String s) { runOnUiThread(() -> { if (!isDestroyed()) ui.setResult(s == null ? "" : s); }); }
+    private void toast(String s) { ui.message("提示", s); }
+    @Override public void onResume() { super.onResume(); refreshState(); }
+    @Override public void onDestroy() {
+        Config.prefs(this).unregisterOnSharedPreferenceChangeListener(preferenceListener);
+        network.shutdown(); super.onDestroy();
+    }
 }

@@ -1,6 +1,8 @@
-# PairLink 0.1.0
+# PairLink Android 0.2.0 / Worker 0.1.0
 
 供双方主动安装、授权和开启共享的 Android 手机指令项目。一个仓库包含 `android/` 客户端与 `worker/` Cloudflare 服务端。
+
+Android 0.2.0 将界面迁移为 Compose + Miuix 0.9.3：默认蓝色主题、系统深浅色、按钮、输入框、开关、卡片、进度条及弹窗。未设置自定义应用图标或界面图标；系统桌面可能显示默认占位图标，前台服务仍保留系统要求的通知小图标。现有 Worker 无需更新。
 
 ## 第一版
 
@@ -31,11 +33,11 @@ npm run deploy
 
 ## 编译 APK
 
-要求 Android 8.0 或更高版本。使用 JDK 17、Gradle 8.9、Android SDK 35。
+要求 Android 8.0 或更高版本。使用 JDK 17、Gradle 9.7.1、Android SDK 37 和 Build Tools 36.0.0。
 
-仓库包含 Gradle Wrapper 8.9，可以直接用 Android Studio 打开 `android/`，等待依赖同步后构建 APK。也包含可选的 GitHub Actions 编译流程；不要求使用它。
+仓库包含 Gradle Wrapper 9.7.1，可以直接用支持 AGP 9.3 的 Android Studio 打开 `android/`，等待依赖同步后构建 APK。也包含可选的 GitHub Actions 编译流程。
 
-也可以用 Android Studio 打开 `android/`，选用 Gradle 8.9 编译。命令行：
+命令行：
 
 ```bash
 cd android
