@@ -170,7 +170,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                             Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
                                 Text(ui.connection, color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.title2)
                                 Spacer(Modifier.height(8.dp))
-                                Text("你的手机，与对方保持连接", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                Text("ฅ^-﹃-^ฅ", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                             }
                         }
                         item {
@@ -190,7 +190,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                             }
                         }
                         item {
-                            Section("共享与权限") {
+                            Section("权限") {
                                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                     OverviewField("允许对方查询此手机", if (ui.sharing) "已开启" else "未开启")
                                     OverviewField("权限模式", ui.privilegeMode)
@@ -205,10 +205,10 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         item {
                             Section("查询对方") {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Action("查看在线状态与电量", activity::queryStatus, enabled = !ui.busy)
-                                    Action("查看过去 24 小时应用使用时长", activity::queryRecent, enabled = !ui.busy, primary = false)
-                                    Action("查看已安装的用户应用", activity::queryInstalledApps, enabled = !ui.busy, primary = false)
-                                    Action("查看对方当前通知", activity::queryNotifications, enabled = !ui.busy, primary = false)
+                                    Action("查看当前状态", activity::queryStatus, enabled = !ui.busy)
+                                    Action("查看应用使用情况", activity::queryRecent, enabled = !ui.busy, primary = false)
+                                    Action("查看应用列表", activity::queryInstalledApps, enabled = !ui.busy, primary = false)
+                                    Action("查看通知列表", activity::queryNotifications, enabled = !ui.busy, primary = false)
                     }
                 }
             }
@@ -218,7 +218,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                             Text("对方设备：" + ui.peer.ifBlank { "尚未配置，请前往设置页面" }, modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         item {
-                            Section("暂停与恢复应用") {
+                            Section("暂停和恢复应用") {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Input(ui.targetPackage, { ui.targetPackage = it }, "对方设备中的应用包名，例如 com.example.kskblzdjd")
                                     Action("暂停", activity::suspendPeerApp, enabled = !ui.busy)
@@ -236,14 +236,14 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
             item {
-                Section("远程 Shell") {
+                Section("执行 Shell 指令") {
                     Column(Modifier.padding(16.dp)) {
-                        Input(ui.script, { ui.script = it }, "输入命令，例如 whoami", singleLine = false)
+                        Input(ui.script, { ui.script = it }, "输入 Shell 命令，例如 whoami", singleLine = false)
                     }
                     SwitchPreference(title = "使用对方的 root 权限", checked = ui.sendRoot, onCheckedChange = { ui.sendRoot = it; if (it) ui.sendShizuku = false })
                     SwitchPreference(title = "使用对方的 Shizuku / Sui", checked = ui.sendShizuku, onCheckedChange = { ui.sendShizuku = it; if (it) ui.sendRoot = false })
                     Column(Modifier.padding(16.dp)) {
-                        Action("执行命令", activity::executeShell, enabled = !ui.busy)
+                        Action("执行", activity::executeShell, enabled = !ui.busy)
                     }
                 }
             }
@@ -264,7 +264,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
                         item {
-                            Section("执行与通知授权") {
+                            Section("执行和通知授权") {
                                 SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
                                 SwitchPreference(title = "允许使用 Shizuku / Sui", summary = "本机确认并授权后，用于 Shell 和应用暂停", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
                                 SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
@@ -416,7 +416,7 @@ private fun queryPage(action: String, result: JSONObject, device: String): Resul
                 "API" to if (result.has("android_sdk")) result.optInt("android_sdk").toString() else "未知",
                 "已开机" to if (uptime >= 0) duration(uptime) else "未知",
             )),
-            ResultCard("电量", fields = listOf(
+            ResultCard("电量信息", fields = listOf(
                 "剩余电量" to if (battery >= 0) "${battery}%" else "未知",
                 "充电状态" to if (result.optBoolean("charging")) "正在充电" else "未充电",
             )),
