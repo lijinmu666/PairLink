@@ -1,10 +1,13 @@
 package com.lijinmu.pairlink
 
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -12,6 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import org.json.JSONObject
+import org.json.JSONArray
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -44,7 +53,39 @@ class UiState {
     var notifications by mutableStateOf(false)
     var connection by mutableStateOf("共享已关闭")
     var dialog by mutableStateOf<UiDialog?>(null)
+    var resultPage by mutableStateOf<ResultPage?>(null)
 
+    fun showQuery(action: String, result: JSONObject, device: String) {
+        val page = queryPage(action, result, device)
+        busy = false
+        dialog = null
+        resultPage = page
+    }
+    fun showRecords(logs: String, device: String) {
+        dialog = null
+        resultPage = ResultPage(
+            "本机记录", device,
+            logs.lineSequence().filter { it.isNotBlank() }.map { ResultCard("执行与连接记录", body = it) }.toList(),
+            emptyMessage = "暂无记录",
+        )
+    }
+    fun showRestored(results: JSONArray) {
+        val cards = (0 until results.length()).map { index ->
+            val item = results.optJSONObject(index) ?: JSONObject()
+            val pkg = item.optString("package_name")
+            ResultCard(
+                appName(item), pkg,
+                fields = listOf(
+                    "结果" to if (item.has("error")) "恢复失败" else if (item.optBoolean("suspended")) "仍被暂停" else "已恢复",
+                    "执行方式" to AppControl.label(item.optString("backend")),
+                ),
+                body = item.optString("error").ifBlank { item.optString("note") },
+            )
+        }
+        busy = false
+        dialog = null
+        resultPage = ResultPage("本机应用恢复结果", own, cards, emptyMessage = "没有需要恢复的应用")
+    }
     fun showResult(body: String) {
         dialog = UiDialog("执行结果", body, "关闭", null, isResult = true)
     }
@@ -72,11 +113,21 @@ object PairLinkUi {
 
 @Composable
 private fun Screen(activity: MainActivity, ui: UiState) {
+    val homeListState = rememberLazyListState()
+    val page = ui.resultPage
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(page) { if (page != null) keyboard?.hide() }
+    BackHandler(enabled = page != null) { ui.resultPage = null }
+    if (page != null) {
+        key(page) { ResultScreen(page, onBack = { ui.resultPage = null }) }
+        return
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = { TopAppBar(title = "PairLink", largeTitle = "PairLink") },
     ) { padding ->
         LazyColumn(
+            state = homeListState,
             modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -227,4 +278,165 @@ private fun Input(value: String, change: (String) -> Unit, label: String, enable
 @Composable
 private fun Action(title: String, action: () -> Unit, enabled: Boolean = true, primary: Boolean = true) {
     TextButton(title, action, Modifier.fillMaxWidth(), enabled = enabled, colors = if (primary) ButtonDefaults.textButtonColorsPrimary() else ButtonDefaults.textButtonColors())
+}
+
+data class ResultCard(
+    val title: String,
+    val subtitle: String = "",
+    val fields: List<Pair<String, String>> = emptyList(),
+    val body: String = "",
+)
+
+data class ResultPage(
+    val title: String,
+    val device: String,
+    val cards: List<ResultCard>,
+    val summary: String = "",
+    val note: String = "",
+    val emptyMessage: String = "暂无结果",
+)
+
+private fun appName(item: JSONObject): String =
+    item.optString("app_name").ifBlank { item.optString("package_name").ifBlank { "未知应用" } }
+
+private fun timestamp(item: JSONObject, key: String): String {
+    if (!item.has(key) || item.isNull(key) || item.optLong(key) <= 0) return "未知"
+    return SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA).format(Date(item.optLong(key)))
+}
+
+private fun duration(milliseconds: Long): String {
+    val seconds = milliseconds.coerceAtLeast(0) / 1000
+    val hours = seconds / 3600
+    val minutes = seconds % 3600 / 60
+    return buildString {
+        if (hours > 0) append("${hours}小时 ")
+        if (minutes > 0 || hours > 0) append("${minutes}分钟 ")
+        append("${seconds % 60}秒")
+    }
+}
+
+private fun queryPage(action: String, result: JSONObject, device: String): ResultPage {
+    if (action == "get_status") {
+        val current = result.optJSONObject("current_app") ?: JSONObject()
+        val battery = result.optInt("battery_percent", -1)
+        val uptime = result.optLong("uptime_ms", -1)
+        val cards = listOf(
+            ResultCard("设备信息", fields = listOf(
+                "型号" to result.optString("device_model").ifBlank { "未知" },
+                "安卓版本" to result.optString("android_version").ifBlank { "未知" },
+                "API" to if (result.has("android_sdk")) result.optInt("android_sdk").toString() else "未知",
+                "已开机" to if (uptime >= 0) duration(uptime) else "未知",
+            )),
+            ResultCard("电量", fields = listOf(
+                "剩余电量" to if (battery >= 0) "${battery}%" else "未知",
+                "充电状态" to if (result.optBoolean("charging")) "正在充电" else "未充电",
+            )),
+            ResultCard("当前屏幕应用", appName(current), fields = listOf(
+                "包名" to current.optString("package_name").ifBlank { "未知" },
+            )),
+            ResultCard("执行授权", fields = listOf(
+                "Shell" to if (result.optBoolean("shell_enabled")) "开启" else "关闭",
+                "root" to if (result.optBoolean("root_enabled")) "开启" else "关闭",
+            )),
+        )
+        return ResultPage("设备状态", device, cards, "查询时间：" + timestamp(result, "queried_at"))
+    }
+    if (action == "get_notifications") {
+        val list = result.optJSONArray("notifications") ?: JSONArray()
+        val cards = (0 until list.length()).map { index ->
+            val item = list.optJSONObject(index) ?: JSONObject()
+            ResultCard(
+                appName(item), item.optString("package_name"),
+                fields = listOf(
+                    "标题" to item.optString("title").ifBlank { "无标题" },
+                    "发布时间" to timestamp(item, "posted_at"),
+                ) + buildList {
+                    if (item.optBoolean("ongoing")) add("类型" to "常驻通知")
+                    if (item.optBoolean("group_summary")) add("分组" to "分组摘要")
+                    if (item.optBoolean("content_truncated")) add("内容" to "正文过长，已截断")
+                },
+                body = item.optString("text").ifBlank { "此通知没有可读取的正文" },
+            )
+        }
+        return ResultPage(
+            "当前通知", device, cards,
+            "显示 ${list.length()} / ${result.optInt("total_count", list.length())} 条 · " + timestamp(result, "queried_at"),
+            (if (result.optBoolean("truncated")) "通知或正文过多，部分内容未完整展示。\n" else "") +
+                "仅显示系统允许读取的内容；自定义通知或敏感通知可能没有正文。",
+            "当前没有通知",
+        )
+    }
+    val recent = action == "get_recent_apps"
+    val apps = result.optJSONArray("apps") ?: JSONArray()
+    val cards = (0 until apps.length()).map { index ->
+        val item = apps.optJSONObject(index) ?: JSONObject()
+        ResultCard(
+            appName(item), item.optString("package_name"),
+            fields = if (recent) listOf(
+                "使用时长" to if (item.has("usage_duration_ms") && !item.isNull("usage_duration_ms") && item.optBoolean("duration_known", true))
+                    duration(item.optLong("usage_duration_ms")) else "未知",
+                "最近打开" to timestamp(item, "last_opened_at"),
+            ) else emptyList(),
+        )
+    }
+    return ResultPage(
+        if (recent) "过去 ${result.optInt("hours", 24)} 小时使用情况" else "已安装的用户应用",
+        device, cards,
+        "共 ${apps.length()} 个应用 · " + timestamp(result, "queried_at"),
+        listOfNotNull(
+            if (recent) "按前台使用时长排序；系统记录不完整时，时长可能未知或存在误差。" else null,
+            if (result.optBoolean("truncated")) "列表过长，仅显示部分应用。" else null,
+        ).joinToString("\n"),
+        if (recent) "此时间段内暂无应用使用记录" else "没有可显示的用户应用",
+    )
+}
+
+@Composable
+private fun ResultScreen(page: ResultPage, onBack: () -> Unit) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = page.title,
+                largeTitle = page.title,
+                navigationIcon = { TextButton("返回", onBack) },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("设备：" + page.device, color = MiuixTheme.colorScheme.primary)
+                    if (page.summary.isNotBlank()) Text(page.summary, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+            }
+            if (page.cards.isEmpty()) {
+                item { Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) { Text(page.emptyMessage) } }
+            }
+            items(page.cards) { card ->
+                Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
+                    SelectionContainer {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(card.title, style = MiuixTheme.textStyles.title2, color = MiuixTheme.colorScheme.primary)
+                            if (card.subtitle.isNotBlank()) Text(card.subtitle, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            card.fields.forEach { (label, value) ->
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    Text(value)
+                                }
+                            }
+                            if (card.body.isNotBlank()) Text(card.body)
+                        }
+                    }
+                }
+            }
+            if (page.note.isNotBlank()) {
+                item { Text(page.note, Modifier.padding(horizontal = 8.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+            }
+        }
+    }
 }
