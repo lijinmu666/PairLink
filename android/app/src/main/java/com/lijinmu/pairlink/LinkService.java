@@ -166,7 +166,12 @@ public final class LinkService extends Service {
             if ("get_notifications".equals(action)) NotificationReaderService.checkAllowed(this);
             returnResult(id, result, null);
             Config.log(this, "指令处理完成：" + action);
-        } catch (Exception e) { returnResult(id, null, e.getMessage()); Config.log(this, "指令失败：" + e.getMessage()); }
+        } catch (Exception e) {
+            String message = e.getMessage();
+            if (message == null || message.trim().isEmpty()) message = e.getClass().getSimpleName();
+            returnResult(id, null, message);
+            Config.log(this, "指令失败：" + message);
+        }
         finally { executingRoot = false; executingShizuku = false; executingAppControl = false; busy.set(false); }
     }
     private void returnResult(String id, JSONObject result, String error) {
