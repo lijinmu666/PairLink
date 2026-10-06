@@ -77,7 +77,7 @@ public final class MainActivity extends ComponentActivity {
     }
     public void queryStatus() { send("get_status", new JSONObject()); }
     public void queryRecent() {
-        try { send("get_recent_apps", new JSONObject().put("hours", 1)); } catch (Exception e) { show(e.getMessage()); }
+        try { send("get_recent_apps", new JSONObject().put("hours", 24)); } catch (Exception e) { show(e.getMessage()); }
     }
     public void executeShell() {
         String command = ui.getScript();
@@ -163,12 +163,15 @@ public final class MainActivity extends ComponentActivity {
         if ("shell".equals(action)) return "退出码：" + r.optInt("exit_code") + "\n超时：" + r.optBoolean("timed_out") + "\n取消：" + r.optBoolean("cancelled")
             + "\n输出截断：" + r.optBoolean("truncated") + "\n\n标准输出\n" + r.optString("stdout") + "\n错误输出\n" + r.optString("stderr");
         JSONArray apps = r.getJSONArray("apps");
-        StringBuilder text = new StringBuilder("最近使用的应用（每个应用显示最近一次打开时间）\n");
+        StringBuilder text = new StringBuilder("最近 " + r.optInt("hours", 24) + " 小时使用的应用（每个应用显示最近一次打开时间）\n");
         SimpleDateFormat f = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA);
         for (int i = 0; i < apps.length(); i++) {
             JSONObject item = apps.getJSONObject(i);
-            text.append("\n").append(item.getString("app_name")).append("\n").append(item.getString("package_name"))
-                .append("\n").append(f.format(new Date(item.getLong("last_opened_at")))).append("\n");
+            String packageName = item.getString("package_name");
+            String appName = item.optString("app_name", packageName);
+            text.append("\n");
+            if (!appName.isEmpty() && !appName.equals(packageName)) text.append(appName).append("\n");
+            text.append(packageName).append("\n").append(f.format(new Date(item.getLong("last_opened_at")))).append("\n");
         }
         if (apps.length() == 0) text.append("暂无记录");
         return text.toString();

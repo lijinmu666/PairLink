@@ -105,7 +105,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 Section("查询对方") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Action("查看在线状态与电量", activity::queryStatus, enabled = !ui.busy)
-                        Action("查看最近 1 小时使用的应用", activity::queryRecent, enabled = !ui.busy, primary = false)
+                        Action("查看最近 24 小时使用的应用", activity::queryRecent, enabled = !ui.busy, primary = false)
                     }
                 }
             }
