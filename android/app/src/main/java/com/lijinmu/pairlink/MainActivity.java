@@ -20,7 +20,7 @@ public final class MainActivity extends ComponentActivity {
     private final Handler permissionHandler = new Handler(Looper.getMainLooper());
     private final Runnable permissionRefresh = new Runnable() {
         @Override public void run() {
-            refreshUsagePermission();
+            refreshAccessPermissions();
             permissionHandler.postDelayed(this, 1000);
         }
     };
@@ -32,14 +32,16 @@ public final class MainActivity extends ComponentActivity {
         Config.prefs(this).registerOnSharedPreferenceChangeListener(preferenceListener);
         PairLinkUi.render(this, ui);
     }
-    private void refreshUsagePermission() {
+    private void refreshAccessPermissions() {
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
+        ui.setNotificationAccess(NotificationReaderService.hasAccess(this));
     }
     private void refreshState() {
-        refreshUsagePermission();
+        refreshAccessPermissions();
         ui.setSharing(Config.sharing(this));
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setRoot(Config.prefs(this).getBoolean("root", false));
+        ui.setNotifications(Config.prefs(this).getBoolean("notifications", false));
         ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
     }
     public void changeSharing(boolean checked) {
@@ -65,6 +67,23 @@ public final class MainActivity extends ComponentActivity {
         if (!Config.prefs(this).getBoolean("shell", false)) { toast("请先开启远程 Shell"); return; }
         ui.confirm("授权 root 模式", "将请求本机 root 管理器授权。成功后，对方可以以 root 权限执行命令。", "请求授权", this::authorizeRoot);
     }
+    public void changeNotifications(boolean checked) {
+        if (!checked) {
+            Config.prefs(this).edit().putBoolean("notifications", false).apply();
+            refreshState();
+            return;
+        }
+        ui.confirm("开启通知共享", "开启后，对方可以读取通知中心当前的应用名、标题和正文。需要你在系统设置中单独授予通知访问权限。", "开启", () -> {
+            Config.prefs(this).edit().putBoolean("notifications", true).apply();
+            refreshState();
+            if (!NotificationReaderService.hasAccess(this)) notificationPermission();
+            else NotificationReaderService.ensureConnected(this);
+        });
+    }
+    public void notificationPermission() {
+        try { startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }
+        catch (ActivityNotFoundException e) { toast("此系统未提供通知访问设置，请在系统设置中搜索通知使用权"); }
+    }
     public void usagePermission() { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); }
     public void testConnection() {
         if (busy) { toast("请等待当前请求完成"); return; }
@@ -76,6 +95,7 @@ public final class MainActivity extends ComponentActivity {
         });
     }
     public void queryStatus() { send("get_status", new JSONObject()); }
+    public void queryNotifications() { send("get_notifications", new JSONObject()); }
     public void queryRecent() {
         try { send("get_recent_apps", new JSONObject().put("hours", 24)); } catch (Exception e) { show(e.getMessage()); }
     }
@@ -148,7 +168,7 @@ public final class MainActivity extends ComponentActivity {
                 }
                 show(format(action, response));
                 Config.log(this, "请求 " + action + "：" + response.optString("status"));
-            } catch (Exception e) { show("请求失败：" + e.getMessage() + "\n不要自动重发 Shell，命令可能已经执行。"); }
+            } catch (Exception e) { show("请求失败：" + e.getMessage() + ("shell".equals(action) ? "\n不要自动重发 Shell，命令可能已经执行。" : "")); }
             finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
         });
     }
@@ -156,12 +176,14 @@ public final class MainActivity extends ComponentActivity {
         String state = response.optString("status");
         if ("offline".equals(state)) return "对方当前离线，请让对方打开应用并开启共享。";
         if ("failed".equals(state)) return "执行失败：" + response.optString("error");
-        if (!"completed".equals(state)) return "请求超时或仍在执行。指令 ID：" + response.optString("command_id") + "\nShell 可能已经执行，请勿直接重复提交。";
+        if (!"completed".equals(state)) return "请求超时或仍在执行。指令 ID：" + response.optString("command_id")
+            + ("shell".equals(action) ? "\nShell 可能已经执行，请勿直接重复提交。" : "");
         JSONObject r = response.getJSONObject("result");
         if ("get_status".equals(action)) return "对方在线\n电量：" + r.optInt("battery_percent") + "%\n充电：" + (r.optBoolean("charging") ? "是" : "否")
             + "\nShell：" + (r.optBoolean("shell_enabled") ? "开启" : "关闭") + "\nroot：" + (r.optBoolean("root_enabled") ? "开启" : "关闭");
         if ("shell".equals(action)) return "退出码：" + r.optInt("exit_code") + "\n超时：" + r.optBoolean("timed_out") + "\n取消：" + r.optBoolean("cancelled")
             + "\n输出截断：" + r.optBoolean("truncated") + "\n\n标准输出\n" + r.optString("stdout") + "\n错误输出\n" + r.optString("stderr");
+        if ("get_notifications".equals(action)) return formatNotifications(r);
         JSONArray apps = r.getJSONArray("apps");
         StringBuilder text = new StringBuilder("最近 " + r.optInt("hours", 24) + " 小时使用的应用（每个应用显示最近一次打开时间）\n");
         SimpleDateFormat f = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA);
@@ -176,11 +198,35 @@ public final class MainActivity extends ComponentActivity {
         if (apps.length() == 0) text.append("暂无记录");
         return text.toString();
     }
+    private String formatNotifications(JSONObject result) throws Exception {
+        JSONArray notifications = result.getJSONArray("notifications");
+        StringBuilder text = new StringBuilder("对方当前通知（" + result.optInt("returned_count", notifications.length())
+            + " / " + result.optInt("total_count", notifications.length()) + " 条）\n");
+        SimpleDateFormat time = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA);
+        for (int i = 0; i < notifications.length(); i++) {
+            JSONObject item = notifications.getJSONObject(i);
+            String pkg = item.getString("package_name"), name = item.optString("app_name", pkg);
+            text.append("\n");
+            if (!name.isEmpty() && !name.equals(pkg)) text.append(name).append("\n");
+            text.append(pkg).append("\n").append(time.format(new Date(item.getLong("posted_at")))).append("\n");
+            if (item.optBoolean("ongoing")) text.append("常驻通知\n");
+            if (item.optBoolean("group_summary")) text.append("分组摘要\n");
+            String title = item.optString("title"), body = item.optString("text");
+            if (!title.isEmpty()) text.append(title).append("\n");
+            text.append(body.isEmpty() ? "（此通知没有可读取的正文）" : body).append("\n");
+            if (item.optBoolean("content_truncated")) text.append("（内容过长，已截断）\n");
+        }
+        if (notifications.length() == 0) text.append("当前没有通知\n");
+        if (result.optBoolean("truncated")) text.append("\n通知或正文过多，部分内容未完整展示。\n");
+        text.append("\n仅显示系统允许读取的内容；自定义通知或敏感通知可能没有正文。");
+        return text.toString();
+    }
     private void show(String s) { runOnUiThread(() -> { if (!isDestroyed()) ui.showResult(s == null ? "" : s); }); }
     private void toast(String s) { ui.message("提示", s); }
     @Override public void onResume() {
         super.onResume();
         refreshState();
+        NotificationReaderService.ensureConnected(this);
         permissionHandler.removeCallbacks(permissionRefresh);
         permissionHandler.postDelayed(permissionRefresh, 1000);
     }

@@ -115,6 +115,7 @@ public final class LinkService extends Service {
                     int hours = params.optInt("hours", 1);
                     if (hours < 1 || hours > 24) throw new Exception("查询范围无效");
                     result = DeviceQueries.recent(this, hours); break;
+                case "get_notifications": result = NotificationReaderService.current(this); break;
                 case "shell":
                     boolean root = params.optBoolean("root", false);
                     if (!Config.shell(this)) throw new Exception("对方未开启远程 Shell");
@@ -134,6 +135,7 @@ public final class LinkService extends Service {
                     break;
                 default: throw new Exception("不支持的指令");
             }
+            if ("get_notifications".equals(action)) NotificationReaderService.checkAllowed(this);
             returnResult(id, result, null);
             Config.log(this, "指令处理完成：" + action);
         } catch (Exception e) { returnResult(id, null, e.getMessage()); Config.log(this, "指令失败：" + e.getMessage()); }
