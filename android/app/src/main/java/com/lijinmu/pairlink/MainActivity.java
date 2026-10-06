@@ -5,6 +5,7 @@ import android.content.*;
 import android.content.pm.PackageManager;
 import android.os.*;
 import android.provider.Settings;
+import android.widget.Toast;
 import androidx.activity.ComponentActivity;
 import android.content.SharedPreferences;
 import org.json.*;
@@ -16,6 +17,8 @@ public final class MainActivity extends ComponentActivity {
     private final UiState ui = new UiState();
     private volatile boolean busy;
     private boolean awaitingShizuku;
+    private int versionTapCount;
+    private long lastVersionTap;
     private final Shizuku.OnRequestPermissionResultListener shizukuPermissionResult = (code, result) -> {
         if (code != 200) return;
         runOnUiThread(() -> {
@@ -42,6 +45,19 @@ public final class MainActivity extends ComponentActivity {
         refreshState();
         Config.prefs(this).registerOnSharedPreferenceChangeListener(preferenceListener);
         PairLinkUi.render(this, ui);
+        if (b == null && Config.prefs(this).getBoolean("love_egg_pending", false)) {
+            Config.prefs(this).edit().remove("love_egg_pending").apply();
+            Toast.makeText(this, "I LOVE U , Starry Sky\u2067", Toast.LENGTH_LONG).show();
+        }
+    }
+    public void tapVersion() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastVersionTap > 1500) versionTapCount = 0;
+        lastVersionTap = now;
+        if (++versionTapCount >= 5) {
+            versionTapCount = 0;
+            Config.prefs(this).edit().putBoolean("love_egg_pending", true).apply();
+        }
     }
     private void refreshAccessPermissions() {
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
