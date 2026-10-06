@@ -64,11 +64,6 @@ final class AppControl {
             && prefs.getInt("paused_uid." + pkg, -1) != ShizukuBridge.uid())
             throw new Exception("Shizuku / Sui 的启动身份已改变，请恢复原启动身份后再恢复应用");
         c.getPackageManager().getApplicationInfo(pkg, 0);
-        if (suspended) {
-            SharedPreferences.Editor pending = prefs.edit().putString(TRACK + pkg, backend);
-            if ("shizuku".equals(backend)) pending.putInt("paused_uid." + pkg, ShizukuBridge.uid());
-            pending.apply();
-        }
         boolean actual;
         if ("device_owner".equals(backend)) {
             DevicePolicyManager policy = c.getSystemService(DevicePolicyManager.class);
@@ -84,7 +79,8 @@ final class AppControl {
                 ? ShizukuBridge.run(c, command, 10, allowed)
                 : runner.run(command, true, 10, allowed);
             if (result.exitCode != 0 || result.timedOut || result.cancelled)
-                throw new Exception("修改暂停状态失败或已取消，状态可能已改变，请检查后再操作。\n" + result.stdout + "\n" + result.stderr);
+                throw new Exception("修改暂停状态失败或已取消（" + backend + "），状态可能已改变，请检查后再操作。\n标准输出："
+                    + result.stdout + "\n错误输出：" + result.stderr);
             Matcher state = STATE.matcher(result.stdout);
             if (!state.find()) throw new Exception("系统未返回可确认的暂停状态，请检查应用后再操作。\n" + result.stdout + "\n" + result.stderr);
             actual = Boolean.parseBoolean(state.group(1));
