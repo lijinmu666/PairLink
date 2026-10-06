@@ -155,7 +155,7 @@ public final class MainActivity extends ComponentActivity {
         if (apps.length() == 0) text.append("暂无记录");
         return text.toString();
     }
-    private void show(String s) { runOnUiThread(() -> { if (!isDestroyed()) ui.setResult(s == null ? "" : s); }); }
+    private void show(String s) { runOnUiThread(() -> { if (!isDestroyed()) ui.showResult(s == null ? "" : s); }); }
     private void toast(String s) { ui.message("提示", s); }
     @Override public void onResume() { super.onResume(); refreshState(); }
     @Override public void onDestroy() {

@@ -30,9 +30,11 @@ class UiState {
     var sendRoot by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var connection by mutableStateOf("共享已关闭")
-    var result by mutableStateOf("等待操作")
     var dialog by mutableStateOf<UiDialog?>(null)
 
+    fun showResult(body: String) {
+        dialog = UiDialog("执行结果", body, "关闭", null, isResult = true)
+    }
     fun message(title: String, body: String) {
         dialog = UiDialog(title, body, "知道了", null)
     }
@@ -41,7 +43,7 @@ class UiState {
     }
 }
 
-data class UiDialog(val title: String, val body: String, val button: String, val action: Runnable?)
+data class UiDialog(val title: String, val body: String, val button: String, val action: Runnable?, val isResult: Boolean = false)
 
 object PairLinkUi {
     @JvmStatic fun render(activity: MainActivity, ui: UiState) {
@@ -114,25 +116,28 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
             item {
-                Section("执行结果") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (ui.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        SelectionContainer { Text(ui.result, fontFamily = FontFamily.Monospace) }
-                        Action("查看本机连接与执行记录", activity::showLogs, primary = false)
-                    }
-                }
+                Action("查看本机连接与执行记录", activity::showLogs, primary = false)
             }
             item {
                 Text("双方都需要主动安装、配置并开启共享。当前为单次命令执行，暂不提供交互式终端或 MCP。", modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
             }
         }
         val dialog = ui.dialog
-        OverlayDialog(show = dialog != null, title = dialog?.title, onDismissRequest = { ui.dialog = null }) {
+        val waiting = dialog?.isResult == true && ui.busy
+        OverlayDialog(
+            show = dialog != null,
+            title = if (waiting) "正在执行" else dialog?.title,
+            onDismissRequest = { if (!waiting) ui.dialog = null },
+        ) {
             if (dialog != null) {
+                if (waiting) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(16.dp))
+                }
                 key(dialog) {
                     SelectionContainer {
                         Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                            Text(dialog.body)
+                            Text(dialog.body, fontFamily = if (dialog.isResult) FontFamily.Monospace else null)
                         }
                     }
                 }
@@ -142,7 +147,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     TextButton(dialog.button, {
                         ui.dialog = null
                         dialog.action?.run()
-                    }, Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary())
+                    }, Modifier.weight(1f), enabled = !waiting, colors = ButtonDefaults.textButtonColorsPrimary())
                 }
             }
         }
