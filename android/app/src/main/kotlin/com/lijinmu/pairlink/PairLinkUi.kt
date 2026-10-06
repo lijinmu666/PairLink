@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -305,6 +306,20 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         Text("共享关闭后也可以恢复本机由 PairLink 暂停的应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Action("恢复本机由 PairLink 暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
                     }
+                }
+            }
+            item {
+                val version = remember(activity) {
+                    runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }
+                        .getOrNull().orEmpty().ifBlank { "未知" }
+                }
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = activity::tapVersion),
+                    insideMargin = PaddingValues(20.dp),
+                ) {
+                    Text("版本号", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
+                    Spacer(Modifier.height(6.dp))
+                    Text(version)
                 }
             }
                     }
