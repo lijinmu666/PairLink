@@ -8,9 +8,6 @@ import android.provider.Settings;
 import androidx.activity.ComponentActivity;
 import android.content.SharedPreferences;
 import org.json.*;
-import java.util.Date;
-import java.text.SimpleDateFormat;
-import java.util.Locale;
 import java.util.concurrent.*;
 import rikka.shizuku.Shizuku;
 
@@ -144,9 +141,7 @@ public final class MainActivity extends ComponentActivity {
             network.execute(() -> {
                 try {
                     JSONArray results = AppControl.restoreLocal(this).getJSONArray("results");
-                    StringBuilder text = new StringBuilder();
-                    for (int i = 0; i < results.length(); i++) text.append(formatAppControl(results.getJSONObject(i))).append("\n\n");
-                    show(text.toString());
+                    runOnUiThread(() -> { if (!isDestroyed()) ui.showRestored(results); });
                 } catch (Exception e) { show("恢复失败：" + e.getMessage()); }
                 finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
             });
@@ -216,7 +211,7 @@ public final class MainActivity extends ComponentActivity {
     }
     public void showLogs() {
         String logs = Config.prefs(this).getString("logs", "");
-        ui.message("本机记录", logs.isEmpty() ? "暂无记录" : logs);
+        ui.showRecords(logs, Config.own(this));
     }
     public void clearLogs() {
         Config.clearLogs(this);
@@ -272,7 +267,12 @@ public final class MainActivity extends ComponentActivity {
                     Thread.sleep(1000);
                     response = Net.request(this, base, "/api/commands/" + id, null);
                 }
-                show(format(action, response));
+                if ("completed".equals(response.optString("status"))
+                    && ("get_recent_apps".equals(action) || "get_installed_apps".equals(action)
+                        || "get_notifications".equals(action) || "get_status".equals(action))) {
+                    JSONObject result = response.getJSONObject("result");
+                    runOnUiThread(() -> { if (!isDestroyed()) ui.showQuery(action, result, target); });
+                } else show(format(action, response));
                 Config.log(this, "请求 " + action + "：" + response.optString("status"));
             } catch (Exception e) { show("请求失败：" + e.getMessage() + ("shell".equals(action) ? "\n不要自动重发 Shell，命令可能已经执行。" : "")); }
             finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
@@ -287,92 +287,16 @@ public final class MainActivity extends ComponentActivity {
         JSONObject r = response.getJSONObject("result");
         if ("set_app_suspended".equals(action)) return formatAppControl(r);
         if ("send_notification".equals(action)) return "普通通知已发送\n标题：" + r.optString("title");
-        if ("get_installed_apps".equals(action)) return formatInstalledApps(r);
-        if ("get_status".equals(action)) return formatDeviceStatus(r);
         if ("shell".equals(action)) return "执行方式：" + ("shizuku".equals(r.optString("backend")) ? "Shizuku / Sui（UID " + r.optInt("shizuku_uid", -1) + "）" : r.optBoolean("root") ? "root" : "普通应用")
             + "\n退出码：" + r.optInt("exit_code") + "\n超时：" + r.optBoolean("timed_out") + "\n取消：" + r.optBoolean("cancelled")
             + "\n输出截断：" + r.optBoolean("truncated") + "\n\n标准输出\n" + r.optString("stdout") + "\n错误输出\n" + r.optString("stderr");
-        if ("get_notifications".equals(action)) return formatNotifications(r);
-        JSONArray apps = r.getJSONArray("apps");
-        StringBuilder text = new StringBuilder("过去 " + r.optInt("hours", 24) + " 小时应用使用情况（按前台使用时长排序）\n");
-        SimpleDateFormat f = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA);
-        for (int i = 0; i < apps.length(); i++) {
-            JSONObject item = apps.getJSONObject(i);
-            String packageName = item.getString("package_name");
-            String appName = item.optString("app_name", packageName);
-            text.append("\n");
-            if (!appName.isEmpty() && !appName.equals(packageName)) text.append(appName).append("\n");
-            text.append(packageName).append("\n使用时长：");
-            if (item.has("usage_duration_ms") && !item.isNull("usage_duration_ms")) {
-                long seconds = Math.max(0, item.getLong("usage_duration_ms")) / 1000;
-                long hours = seconds / 3600, minutes = seconds % 3600 / 60;
-                if (hours > 0) text.append(hours).append("小时 ");
-                if (minutes > 0 || hours > 0) text.append(minutes).append("分钟 ");
-                text.append(seconds % 60).append("秒");
-            } else text.append("未知");
-            text.append("\n最近打开：");
-            if (item.has("last_opened_at") && !item.isNull("last_opened_at"))
-                text.append(f.format(new Date(item.getLong("last_opened_at"))));
-            else text.append("未知");
-            text.append("\n");
-        }
-        if (apps.length() == 0) text.append("暂无记录");
-        if (r.optBoolean("truncated")) text.append("\n列表过长，已截断。");
-        return text.toString();
-    }
-    private String formatDeviceStatus(JSONObject r) throws Exception {
-        JSONObject current = r.optJSONObject("current_app");
-        String app = current == null ? "未知" : current.optString("app_name", "未知");
-        String pkg = current == null ? "" : current.optString("package_name", "");
-        long uptime = r.optLong("uptime_ms", 0);
-        long totalSeconds = uptime / 1000, days = totalSeconds / 86400;
-        long hours = (totalSeconds % 86400) / 3600, minutes = (totalSeconds % 3600) / 60;
-        return "对方在线\n设备型号：" + r.optString("device_model", "未知")
-            + "\n安卓版本：" + r.optString("android_version", "未知") + "（API " + r.optInt("android_sdk", 0) + "）"
-            + "\n开机时间：" + (days > 0 ? days + "天 " : "") + hours + "小时 " + minutes + "分钟"
-            + "\n当前屏幕应用：" + app + (pkg.isEmpty() ? "" : "\n包名：" + pkg)
-            + "\n电量：" + r.optInt("battery_percent") + "%"
-            + "\n充电：" + (r.optBoolean("charging") ? "是" : "否")
-            + "\nShell：" + (r.optBoolean("shell_enabled") ? "开启" : "关闭")
-            + "\nroot：" + (r.optBoolean("root_enabled") ? "开启" : "关闭");
-    }
-    private String formatInstalledApps(JSONObject result) throws Exception {
-        JSONArray apps = result.getJSONArray("apps");
-        StringBuilder text = new StringBuilder("已安装的用户应用（" + apps.length() + " 个）\n");
-        for (int i = 0; i < apps.length(); i++) {
-            JSONObject item = apps.getJSONObject(i);
-            text.append("\n").append(item.optString("app_name", item.optString("package_name"))).append("\n").append(item.getString("package_name")).append("\n");
-        }
-        return text.toString();
+        return r.toString(2);
     }
     private String formatAppControl(JSONObject result) {
         if (result.has("error")) return result.optString("package_name") + "\n恢复失败：" + result.optString("error");
         return result.optString("app_name", result.optString("package_name")) + "\n" + result.optString("package_name")
             + "\n当前状态：" + (result.optBoolean("suspended") ? "已暂停" : "未暂停")
             + "\n执行方式：" + AppControl.label(result.optString("backend")) + "\n" + result.optString("note");
-    }
-    private String formatNotifications(JSONObject result) throws Exception {
-        JSONArray notifications = result.getJSONArray("notifications");
-        StringBuilder text = new StringBuilder("对方当前通知（" + result.optInt("returned_count", notifications.length())
-            + " / " + result.optInt("total_count", notifications.length()) + " 条）\n");
-        SimpleDateFormat time = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA);
-        for (int i = 0; i < notifications.length(); i++) {
-            JSONObject item = notifications.getJSONObject(i);
-            String pkg = item.getString("package_name"), name = item.optString("app_name", pkg);
-            text.append("\n");
-            if (!name.isEmpty() && !name.equals(pkg)) text.append(name).append("\n");
-            text.append(pkg).append("\n").append(time.format(new Date(item.getLong("posted_at")))).append("\n");
-            if (item.optBoolean("ongoing")) text.append("常驻通知\n");
-            if (item.optBoolean("group_summary")) text.append("分组摘要\n");
-            String title = item.optString("title"), body = item.optString("text");
-            if (!title.isEmpty()) text.append(title).append("\n");
-            text.append(body.isEmpty() ? "（此通知没有可读取的正文）" : body).append("\n");
-            if (item.optBoolean("content_truncated")) text.append("（内容过长，已截断）\n");
-        }
-        if (notifications.length() == 0) text.append("当前没有通知\n");
-        if (result.optBoolean("truncated")) text.append("\n通知或正文过多，部分内容未完整展示。\n");
-        text.append("\n仅显示系统允许读取的内容；自定义通知或敏感通知可能没有正文。");
-        return text.toString();
     }
     private void show(String s) { runOnUiThread(() -> { if (!isDestroyed()) ui.showResult(s == null ? "" : s); }); }
     private void toast(String s) { ui.message("提示", s); }
