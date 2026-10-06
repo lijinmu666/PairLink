@@ -1,9 +1,6 @@
 name: 编译与验证
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 permissions:
   contents: read
 jobs:
