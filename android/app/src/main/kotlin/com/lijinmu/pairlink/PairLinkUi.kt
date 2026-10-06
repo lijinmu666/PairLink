@@ -279,9 +279,6 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     }
                 }
             }
-            item {
-                Text("双方都需要主动安装、配置并开启共享。当前为单次命令执行，暂不提供交互式终端或 MCP。", modifier = Modifier.padding(horizontal = 12.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
-            }
                     }
                 }
             }
