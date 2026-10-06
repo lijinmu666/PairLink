@@ -47,6 +47,17 @@ public final class MainActivity extends ComponentActivity {
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
         ui.setNotificationAccess(NotificationReaderService.hasAccess(this));
         ui.setPrivilegeStatus(ShizukuBridge.status() + "\n设备所有者：" + (AppControl.isOwner(this) ? "已激活" : "未激活"));
+        boolean owner = AppControl.isOwner(this);
+        boolean shizuku = Config.prefs(this).getBoolean("shizuku", false) && ShizukuBridge.granted();
+        boolean root = Config.prefs(this).getBoolean("root", false);
+        String mode = AppControl.mode(this);
+        if ("shizuku".equals(mode) && shizuku) ui.setPrivilegeMode("Shizuku");
+        else if ("root".equals(mode) && root) ui.setPrivilegeMode("root");
+        else if ("device_owner".equals(mode) && owner) ui.setPrivilegeMode("设备所有者");
+        else if (root) ui.setPrivilegeMode("root");
+        else if (shizuku) ui.setPrivilegeMode("Shizuku");
+        else if (owner) ui.setPrivilegeMode("设备所有者");
+        else ui.setPrivilegeMode("无特权");
     }
     private void refreshState() {
         refreshAccessPermissions();
