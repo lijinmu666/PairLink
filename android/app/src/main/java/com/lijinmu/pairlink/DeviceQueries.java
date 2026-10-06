@@ -74,23 +74,93 @@ final class DeviceQueries {
         if (!usageAllowed(c)) throw new Exception("对方尚未开启使用情况访问权限");
         long end = System.currentTimeMillis(), start = end - hours * 3600000L;
         UsageStatsManager manager = (UsageStatsManager)c.getSystemService(Context.USAGE_STATS_SERVICE);
-        UsageEvents events = manager.queryEvents(start, end);
+        if (manager == null) throw new Exception("系统暂时无法提供应用使用记录");
+        UsageEvents events = manager.queryEvents(start - 86400000L, end);
         if (events == null) throw new Exception("系统暂时无法提供应用使用记录，请解锁手机后重试");
-        Map<String, Long> last = new HashMap<>();
+        UsageDurationTracker tracker = new UsageDurationTracker(start, end);
         UsageEvents.Event event = new UsageEvents.Event();
         while (events.hasNextEvent()) {
             events.getNextEvent(event);
-            if (event.getEventType() == UsageEvents.Event.MOVE_TO_FOREGROUND && event.getPackageName() != null) last.put(event.getPackageName(), event.getTimeStamp());
+            tracker.accept(event.getEventType(), event.getPackageName(), event.getClassName(), event.getTimeStamp());
         }
-        List<Map.Entry<String, Long>> items = new ArrayList<>(last.entrySet());
-        items.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+        tracker.finish();
+        List<Map.Entry<String, UsageDurationTracker.App>> items = new ArrayList<>(tracker.apps.entrySet());
+        items.removeIf(item -> !item.getValue().seen);
+        items.sort((a, b) -> {
+            UsageDurationTracker.App left = a.getValue(), right = b.getValue();
+            if (left.unknown != right.unknown) return left.unknown ? 1 : -1;
+            int duration = Long.compare(right.duration, left.duration);
+            return duration != 0 ? duration : Long.compare(right.lastOpened, left.lastOpened);
+        });
         JSONArray apps = new JSONArray();
-        for (Map.Entry<String, Long> item : items) {
-            if (apps.length() >= 50) break;
-            String name = item.getKey();
-            try { name = c.getPackageManager().getApplicationLabel(c.getPackageManager().getApplicationInfo(name, 0)).toString(); } catch (Exception ignored) {}
-            apps.put(new JSONObject().put("package_name", item.getKey()).put("app_name", name).put("last_opened_at", item.getValue()));
+        boolean truncated = false;
+        for (Map.Entry<String, UsageDurationTracker.App> item : items) {
+            if (apps.length() >= 50) { truncated = true; break; }
+            String pkg = item.getKey(), name = pkg;
+            try { name = c.getPackageManager().getApplicationLabel(c.getPackageManager().getApplicationInfo(pkg, 0)).toString(); } catch (Exception ignored) {}
+            UsageDurationTracker.App usage = item.getValue();
+            apps.put(new JSONObject().put("package_name", pkg).put("app_name", name)
+                .put("last_opened_at", usage.lastOpened > 0 ? usage.lastOpened : JSONObject.NULL)
+                .put("usage_duration_ms", usage.unknown ? JSONObject.NULL : usage.duration)
+                .put("duration_known", !usage.unknown));
+            if (apps.toString().length() > 44000) {
+                apps.remove(apps.length() - 1); truncated = true; break;
+            }
         }
-        return new JSONObject().put("hours", hours).put("apps", apps).put("queried_at", end);
+        return new JSONObject().put("hours", hours).put("apps", apps).put("truncated", truncated)
+            .put("window_start", start).put("queried_at", end);
     }
+}
+
+final class UsageDurationTracker {
+    static final class App {
+        final Set<String> resumed = new HashSet<>();
+        long duration, lastOpened;
+        boolean seen, unknown;
+    }
+    final Map<String, App> apps = new HashMap<>();
+    private final long start, end;
+    private long previous;
+    private boolean interactive = true;
+    UsageDurationTracker(long start, long end) {
+        this.start = start; this.end = end; this.previous = start;
+    }
+    private void advance(long timestamp) {
+        long next = Math.max(previous, Math.min(end, Math.max(start, timestamp)));
+        if (interactive && next > previous) {
+            for (App app : apps.values()) {
+                if (!app.resumed.isEmpty()) {
+                    app.seen = true;
+                    app.duration += next - previous;
+                }
+            }
+        }
+        previous = next;
+    }
+    void accept(int type, String pkg, String activity, long timestamp) {
+        if (timestamp > end) return;
+        advance(timestamp);
+        if (type == UsageEvents.Event.SCREEN_INTERACTIVE) { interactive = true; return; }
+        if (type == UsageEvents.Event.SCREEN_NON_INTERACTIVE) { interactive = false; return; }
+        if (type == UsageEvents.Event.DEVICE_SHUTDOWN || type == UsageEvents.Event.DEVICE_STARTUP) {
+            for (App app : apps.values()) app.resumed.clear();
+            interactive = true;
+            return;
+        }
+        if (pkg == null || pkg.isEmpty() || (type != UsageEvents.Event.MOVE_TO_FOREGROUND && type != UsageEvents.Event.MOVE_TO_BACKGROUND && type != UsageEvents.Event.ACTIVITY_STOPPED)) return;
+        App app = apps.computeIfAbsent(pkg, ignored -> new App());
+        String key = activity == null ? "" : activity;
+        if (type == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+            app.lastOpened = timestamp;
+            app.resumed.add(key);
+            if (timestamp >= start) app.seen = true;
+        } else {
+            boolean matched = app.resumed.remove(key);
+            if (type == UsageEvents.Event.MOVE_TO_BACKGROUND && !matched && timestamp >= start) {
+                app.seen = true;
+                app.unknown = true;
+            }
+        }
+    }
+    void finish() { advance(end); }
 }
