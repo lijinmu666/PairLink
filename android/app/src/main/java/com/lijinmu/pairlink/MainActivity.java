@@ -305,7 +305,7 @@ public final class MainActivity extends ComponentActivity {
             text.append(packageName).append("\n").append(f.format(new Date(item.getLong("last_opened_at")))).append("\n");
         }
         if (apps.length() == 0) text.append("暂无记录");
-        if (result.optBoolean("truncated")) text.append("\\n列表过长，已截断。");
+        if (r.optBoolean("truncated")) text.append("\\n列表过长，已截断。");
         return text.toString();
     }
     private String formatDeviceStatus(JSONObject r) throws Exception {
