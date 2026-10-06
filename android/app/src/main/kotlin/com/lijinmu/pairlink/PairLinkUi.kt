@@ -138,10 +138,10 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
                 Spacer(Modifier.height(20.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (dialog?.action != null) TextButton("取消", { ui.dialog = null }, Modifier.weight(1f))
-                    TextButton(dialog?.button ?: "知道了", {
+                    if (dialog.action != null) TextButton("取消", { ui.dialog = null }, Modifier.weight(1f))
+                    TextButton(dialog.button, {
                         ui.dialog = null
-                        dialog?.action?.run()
+                        dialog.action?.run()
                     }, Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary())
                 }
             }
