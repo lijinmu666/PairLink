@@ -1,7 +1,5 @@
 name: 编译与验证
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,16 +24,11 @@ jobs:
           mkdir -p /tmp/pairlink-shell-tests
           javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/ShellRunner.java android/test/ShellRunnerTest.java
           java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.ShellRunnerTest
-      - run: gradle --no-daemon -p android assembleRelease lintRelease
-      - name: 准备未签名Release与签名工具
-        run: |
-          mkdir -p /tmp/pairlink-release
-          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -P 16 -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/pairlink-release/PairLink-release-unsigned.apk
-          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" /tmp/pairlink-release/apksigner.jar
+      - run: gradle --no-daemon -p android assembleDebug lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: PairLink-release-unsigned
-          path: /tmp/pairlink-release/
+          name: PairLink-0.2.0-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
   worker:
     runs-on: ubuntu-latest
     steps:
