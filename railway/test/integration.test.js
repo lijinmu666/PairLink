@@ -50,7 +50,7 @@ test('Android heartbeat and every supported action round-trip via HTTP results',
   assert.equal((await pong)[0].toString(), 'pong');
   for (const [action, params] of [
     ['get_status', {}], ['get_recent_apps', { hours: 24 }], ['get_installed_apps', {}],
-    ['get_notifications', {}], ['send_notification', { title: '你好', content: '测试通知' }],
+    ['get_notifications', {}], ['get_media', {}], ['send_notification', { title: '你好', content: '测试通知' }],
     ['set_app_suspended', { package_name: 'com.example.app', suspended: true }],
     ['shell', { command: 'whoami', root: true, timeout_seconds: 20 }],
   ]) {

@@ -51,7 +51,7 @@ public final class NotificationReaderService extends NotificationListenerService
         return false;
     }
     static void ensureConnected(Context c) {
-        if (connected != null || !hasAccess(c) || !Config.prefs(c).getBoolean("notifications", false)) return;
+        if (connected != null || !hasAccess(c) || (!Config.prefs(c).getBoolean("notifications", false) && !Config.prefs(c).getBoolean("media", false))) return;
         try { requestRebind(new ComponentName(c, NotificationReaderService.class)); }
         catch (RuntimeException ignored) {}
     }

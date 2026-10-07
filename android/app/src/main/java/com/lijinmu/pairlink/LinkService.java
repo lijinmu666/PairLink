@@ -140,6 +140,7 @@ public final class LinkService extends Service {
                     int hours = params.optInt("hours", 1);
                     if (hours < 1 || hours > 24) throw new Exception("查询范围无效");
                     result = DeviceQueries.recent(this, hours); break;
+                case "get_media": result = MediaQueries.current(this); break;
                 case "get_notifications": result = NotificationReaderService.current(this); break;
                 case "set_app_suspended":
                     if (!(params.opt("suspended") instanceof Boolean)) throw new Exception("暂停参数无效");
@@ -177,6 +178,7 @@ public final class LinkService extends Service {
                     break;
                 default: throw new Exception("不支持的指令");
             }
+            if ("get_media".equals(action)) MediaQueries.checkAllowed(this);
             if ("get_notifications".equals(action)) NotificationReaderService.checkAllowed(this);
             returnResult(id, result, null);
             Config.log(this, "指令处理完成：" + action);

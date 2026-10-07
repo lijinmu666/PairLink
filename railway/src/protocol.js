@@ -2,10 +2,10 @@ export const validId = value => typeof value === 'string' && /^[A-Za-z0-9._-]{1,
 export const validCommandId = value => typeof value === 'string' && /^[0-9a-f-]{36}$/.test(value);
 export function validateCommand(body) {
   if (!body || !validId(body.sender_id) || !validId(body.target_id) || body.sender_id === body.target_id) return null;
-  if (!['get_status', 'get_recent_apps', 'get_notifications', 'get_installed_apps', 'send_notification', 'set_app_suspended', 'shell'].includes(body.action)) return null;
+  if (!['get_status', 'get_media', 'get_recent_apps', 'get_notifications', 'get_installed_apps', 'send_notification', 'set_app_suspended', 'shell'].includes(body.action)) return null;
   const params = body.params ?? {};
   if (typeof params !== 'object' || params === null || Array.isArray(params)) return null;
-  if (body.action === 'get_status' || body.action === 'get_notifications' || body.action === 'get_installed_apps') return { sender_id: body.sender_id, target_id: body.target_id, action: body.action, params: {} };
+  if (body.action === 'get_status' || body.action === 'get_media' || body.action === 'get_notifications' || body.action === 'get_installed_apps') return { sender_id: body.sender_id, target_id: body.target_id, action: body.action, params: {} };
   if (body.action === 'get_recent_apps') {
     const hours = params.hours ?? 1;
     if (!Number.isInteger(hours) || hours < 1 || hours > 24) return null;
@@ -42,4 +42,3 @@ export function acceptResult(record, deviceId, body, now) {
   if (JSON.stringify(result).length > 48000) return null;
   return { ...record, status: body.ok ? 'completed' : 'failed', result, error, completed_at: now };
 }
-

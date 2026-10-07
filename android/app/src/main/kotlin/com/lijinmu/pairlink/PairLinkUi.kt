@@ -63,6 +63,7 @@ class UiState {
     var notificationContent by mutableStateOf("")
     var sendNotifications by mutableStateOf(false)
     var notifications by mutableStateOf(false)
+    var media by mutableStateOf(false)
     var connection by mutableStateOf("共享已关闭")
     var dialog by mutableStateOf<UiDialog?>(null)
     var resultPage by mutableStateOf<ResultPage?>(null)
@@ -223,6 +224,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     Action("查看应用使用情况", activity::queryRecent, enabled = !ui.busy, primary = false)
                                     Action("查看应用列表", activity::queryInstalledApps, enabled = !ui.busy, primary = false)
                                     Action("查看通知列表", activity::queryNotifications, enabled = !ui.busy, primary = false)
+                                    Action("查看媒体播放", activity::queryMedia, enabled = !ui.busy, primary = false)
                     }
                 }
             }
@@ -290,6 +292,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
                                 SwitchPreference(title = "允许对方发送普通通知", summary = "接收方确认后才允许发送", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
                                 SwitchPreference(title = "允许对方查看通知", summary = if (ui.notificationAccess) "仅在查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
+                                SwitchPreference(title = "允许对方查看媒体播放", summary = if (ui.notificationAccess) "查询系统媒体面板的曲目和播放状态" else "需要授予系统通知访问权限", checked = ui.media, onCheckedChange = activity::changeMedia)
                                 if (!ui.notificationAccess) {
                                     Column(Modifier.padding(16.dp)) {
                                         Action("开启通知访问权限", activity::notificationPermission, primary = false)
@@ -450,6 +453,32 @@ private fun queryPage(action: String, result: JSONObject, device: String): Resul
             )),
         )
         return ResultPage("设备状态", device, cards, "查询时间：" + timestamp(result, "queried_at"))
+    }
+    if (action == "get_media") {
+        val sessions = result.optJSONArray("sessions") ?: JSONArray()
+        val cards = (0 until sessions.length()).map { index ->
+            val item = sessions.optJSONObject(index) ?: JSONObject()
+            ResultCard(
+                item.optString("title").ifBlank { "未提供曲目名称" },
+                appName(item),
+                fields = listOf(
+                    "应用包名" to item.optString("package_name"),
+                    "播放状态" to item.optString("state").ifBlank { "未知" },
+                    "作者 / 歌手" to item.optString("artist").ifBlank { "未提供" },
+                    "专辑" to item.optString("album").ifBlank { "未提供" },
+                    "播放进度" to if (item.isNull("position_ms") || !item.has("position_ms")) "未知" else duration(item.optLong("position_ms")),
+                    "总时长" to if (item.isNull("duration_ms") || !item.has("duration_ms")) "未知" else duration(item.optLong("duration_ms")),
+                ),
+            )
+        }
+        return ResultPage(
+            "媒体播放", device, cards,
+            "共 ${cards.size} 个媒体会话 · " + timestamp(result, "queried_at"),
+            "这是查询时的播放快照，进度可能为估算值；仅显示应用向系统提供的信息，可能包含视频。" +
+                (if (result.optBoolean("truncated")) "\n媒体会话较多，仅显示部分结果。" else "") +
+                (if (result.optInt("unavailable_count") > 0) "\n部分媒体会话暂时无法读取。" else ""),
+            if (result.optInt("unavailable_count") > 0) "媒体会话暂时无法读取，请稍后重试" else "当前没有可读取的媒体会话",
+        )
     }
     if (action == "get_notifications") {
         val list = result.optJSONArray("notifications") ?: JSONArray()

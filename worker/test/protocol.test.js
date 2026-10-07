@@ -66,3 +66,12 @@ test('设备信息和普通通知指令参数校验', () => {
   assert.equal(validateCommand({ ...good, params: { title: 'x'.repeat(129), content: 'x' } }), null);
   assert.equal(validateCommand({ ...good, params: { title: 'x', content: 'x'.repeat(4097) } }), null);
 });
+test('媒体查询只读取系统媒体会话并通过现有结果通道返回', () => {
+  assert.deepEqual(validateCommand({ ...base, action: 'get_media', params: { root: true, record: true } }),
+    { ...base, action: 'get_media', params: {} });
+  assert.equal(validateCommand({ ...base, action: 'get_media', params: [] }), null);
+  const result = { sessions: [{ package_name: 'com.example.music', title: 'Starry Sky', state: '正在播放', position_ms: 30000, duration_ms: 180000 }] };
+  const pending = { target_id: 'bob', status: 'pending', deadline_at: 100 };
+  assert.deepEqual(acceptResult(pending, 'bob', { ok: true, result }, 50).result, result);
+  assert.equal(acceptResult(pending, 'alice', { ok: true, result }, 50), null);
+});

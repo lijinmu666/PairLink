@@ -85,6 +85,7 @@ public final class MainActivity extends ComponentActivity {
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setRoot(Config.prefs(this).getBoolean("root", false));
         ui.setNotifications(Config.prefs(this).getBoolean("notifications", false));
+        ui.setMedia(Config.prefs(this).getBoolean("media", false));
         ui.setSendNotifications(Config.prefs(this).getBoolean("send_notifications", false));
         ui.setShizuku(Config.prefs(this).getBoolean("shizuku", false));
         ui.setAppControl(Config.prefs(this).getBoolean("app_control", false));
@@ -244,6 +245,20 @@ public final class MainActivity extends ComponentActivity {
             catch (Exception e) { show(e.getMessage()); }
         });
     }
+    public void changeMedia(boolean checked) {
+        if (!checked) {
+            Config.prefs(this).edit().putBoolean("media", false).apply();
+            refreshState();
+            return;
+        }
+        ui.confirm("开启媒体播放共享", "允许对方查询系统媒体面板中的应用、曲目、作者、播放状态和进度。需要通知访问权限，不会录音。", "开启", () -> {
+            Config.prefs(this).edit().putBoolean("media", true).apply();
+            refreshState();
+            if (!NotificationReaderService.hasAccess(this)) notificationPermission();
+            else NotificationReaderService.ensureConnected(this);
+        });
+    }
+    public void queryMedia() { send("get_media", new JSONObject()); }
     public void queryNotifications() { send("get_notifications", new JSONObject()); }
     public void queryRecent() {
         try { send("get_recent_apps", new JSONObject().put("hours", 24)); } catch (Exception e) { show(e.getMessage()); }
@@ -318,7 +333,7 @@ public final class MainActivity extends ComponentActivity {
                 }
                 if ("completed".equals(response.optString("status"))
                     && ("get_recent_apps".equals(action) || "get_installed_apps".equals(action)
-                        || "get_notifications".equals(action) || "get_status".equals(action))) {
+                        || "get_notifications".equals(action) || "get_media".equals(action) || "get_status".equals(action))) {
                     JSONObject result = response.getJSONObject("result");
                     runOnUiThread(() -> { if (!isDestroyed()) ui.showQuery(action, result, target); });
                 } else show(format(action, response));
