@@ -50,6 +50,8 @@ class UiState {
     var appControlMode by mutableStateOf("device_owner")
     var privilegeStatus by mutableStateOf("")
     var privilegeMode by mutableStateOf("无特权")
+    var secureDns by mutableStateOf(true)
+    var statusNotification by mutableStateOf(true)
     var sharing by mutableStateOf(false)
     var shell by mutableStateOf(false)
     var root by mutableStateOf(false)
@@ -250,6 +252,12 @@ private fun Screen(activity: MainActivity, ui: UiState) {
             }
                     }
                     3 -> {
+                        item {
+                            Section("客户端偏好") {
+                                SwitchPreference(title = "安全 DNS", summary = "仅用于 PairLink，优先使用 Cloudflare 加密 DNS；失败时回退系统 DNS", checked = ui.secureDns, onCheckedChange = activity::changeSecureDns)
+                                SwitchPreference(title = "后台状态通知", summary = "在系统设置中开关共享连接通知，返回后自动同步；关闭通知不停止共享", checked = ui.statusNotification, onCheckedChange = activity::changeStatusNotification)
+                            }
+                        }
                         item {
                             Section("连接设置") {
                                 SwitchPreference(title = "允许对方查询此设备", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)

@@ -9,13 +9,16 @@ import okhttp3.dnsoverhttps.DnsOverHttps;
 
 final class Net {
     private static volatile OkHttpClient client;
-    static OkHttpClient client(Context c) {
-        if (client != null) return client;
-        synchronized (Net.class) {
-            if (client == null) {
+    private static boolean secureDnsMode;
+    static synchronized OkHttpClient client(Context c) {
+        boolean secureDns = Config.prefs(c).getBoolean("secure_dns", true);
+        if (client == null || secureDnsMode != secureDns) {
+                secureDnsMode = secureDns;
                 OkHttpClient bootstrap = new OkHttpClient.Builder().connectTimeout(12, TimeUnit.SECONDS)
                     .readTimeout(15, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS).build();
-                try {
+                if (!secureDns) {
+                    client = bootstrap;
+                } else try {
                     DnsOverHttps doh = new DnsOverHttps.Builder().client(bootstrap)
                         .url(HttpUrl.get("https://cloudflare-dns.com/dns-query"))
                         .bootstrapDnsHosts(InetAddress.getByName("1.1.1.1"), InetAddress.getByName("1.0.0.1"))
@@ -24,7 +27,6 @@ final class Net {
                         try { return doh.lookup(host); } catch (Exception e) { return Dns.SYSTEM.lookup(host); }
                     }).build();
                 } catch (Exception e) { client = bootstrap; }
-            }
         }
         return client;
     }

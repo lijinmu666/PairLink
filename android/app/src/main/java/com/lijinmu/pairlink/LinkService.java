@@ -2,6 +2,7 @@ package com.lijinmu.pairlink;
 
 import android.app.*;
 import android.content.Intent;
+import android.content.Context;
 import android.os.*;
 import org.json.JSONObject;
 import okhttp3.*;
@@ -10,7 +11,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class LinkService extends Service {
-    static final String STOP = "stop", POLICY = "policy";
+    static final String STOP = "stop", POLICY = "policy", NETWORK = "network";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService tasks = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean();
@@ -44,16 +45,29 @@ public final class LinkService extends Service {
                 runner.cancel(); ShizukuBridge.cancel();
             }
         }
+        if (intent != null && NETWORK.equals(intent.getAction())) {
+            generation++;
+            if (socket != null) socket.cancel();
+            socket = null;
+            state("正在重新连接");
+            connect();
+        }
         return START_STICKY;
     }
+    static void createConnectionChannel(Context c) {
+        NotificationChannel channel = new NotificationChannel("connection", "共享连接", NotificationManager.IMPORTANCE_LOW);
+        channel.setSound(null, null);
+        channel.enableVibration(false);
+        channel.setShowBadge(false);
+        c.getSystemService(NotificationManager.class).createNotificationChannel(channel);
+    }
     private Notification notification(String state) {
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel("connection", "共享连接", NotificationManager.IMPORTANCE_LOW));
+        createConnectionChannel(this);
         PendingIntent open = PendingIntent.getActivity(this, 1, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent stop = PendingIntent.getService(this, 2, new Intent(this, LinkService.class).setAction(STOP), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, "connection").setSmallIcon(android.R.drawable.ic_menu_share)
             .setContentTitle("PairLink · " + state).setContentText("允许已设置的对方设备查询 · 点击暂停可停止共享")
-            .setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null, "暂停共享", stop).build()).build();
+            .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).addAction(new Notification.Action.Builder(null, "暂停共享", stop).build()).build();
     }
     private void state(String text) {
         Config.prefs(this).edit().putString("connection", text).apply();

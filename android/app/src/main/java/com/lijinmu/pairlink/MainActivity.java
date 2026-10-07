@@ -60,6 +60,9 @@ public final class MainActivity extends ComponentActivity {
         }
     }
     private void refreshAccessPermissions() {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        NotificationChannel channel = nm.getNotificationChannel("connection");
+        ui.setStatusNotification(nm.areNotificationsEnabled() && (channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE));
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
         ui.setNotificationAccess(NotificationReaderService.hasAccess(this));
         ui.setPrivilegeStatus(ShizukuBridge.status() + "\n设备所有者：" + (AppControl.isOwner(this) ? "已激活" : "未激活"));
@@ -77,6 +80,7 @@ public final class MainActivity extends ComponentActivity {
     }
     private void refreshState() {
         refreshAccessPermissions();
+        ui.setSecureDns(Config.prefs(this).getBoolean("secure_dns", true));
         ui.setSharing(Config.sharing(this));
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setRoot(Config.prefs(this).getBoolean("root", false));
@@ -87,10 +91,28 @@ public final class MainActivity extends ComponentActivity {
         ui.setAppControlMode(AppControl.mode(this));
         ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
     }
+    public void changeSecureDns(boolean checked) {
+        if (busy) { toast("请等待当前请求完成"); return; }
+        Config.prefs(this).edit().putBoolean("secure_dns", checked).apply();
+        refreshState();
+        if (Config.sharing(this)) startService(new Intent(this, LinkService.class).setAction(LinkService.NETWORK));
+    }
+    public void changeStatusNotification(boolean checked) {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        LinkService.createConnectionChannel(this);
+        Intent settings = nm.areNotificationsEnabled()
+            ? new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                .putExtra(Settings.EXTRA_CHANNEL_ID, "connection")
+            : new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+        try { startActivity(settings); }
+        catch (ActivityNotFoundException e) { toast("请在系统设置中的 PairLink 通知设置里开关共享连接通知"); }
+    }
     public void changeSharing(boolean checked) {
         if (checked && !settingsValid()) { toast("请先保存有效的连接设置"); return; }
         if (checked && Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1); return;
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
         }
         Config.prefs(this).edit().putBoolean("sharing", checked).apply();
         if (checked) startForegroundService(new Intent(this, LinkService.class));
