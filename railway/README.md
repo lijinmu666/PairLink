@@ -12,7 +12,7 @@
 6. Settings → Networking → Generate Domain，获得 HTTPS 地址。端口使用 Railway 自动提供的 `PORT`，程序监听 `0.0.0.0`。
 7. 打开 `https://生成的域名/health`，应返回 `ok: true`、`backend: railway`。
 
-两台手机先暂停共享，再把服务器地址改成同一个 Railway HTTPS 根地址（不带 `/health`），保存并重新开启共享。如果你的网络能直连该域名，可关闭客户端安全 DNS 再测试连接。双方的 ID 和授权开关不需要更改。
+两台手机先暂停共享，再把服务器地址改成同一个 Railway HTTPS 根地址（不带 `/health`），保存并重新开启共享。客户端使用系统 DNS，可直接测试连接。双方的 ID 和授权开关不需要更改。
 
 保留的 Cloudflare Worker 仍按原来的方式部署。两个后端的数据相互独立，切换地址不会迁移旧指令或结果。服务重启时手机会重连；尚未完成的指令不自动重发，最多等待 45 秒后超时，避免重复执行 Shell。
 

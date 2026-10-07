@@ -11,7 +11,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class LinkService extends Service {
-    static final String STOP = "stop", POLICY = "policy", NETWORK = "network";
+    static final String STOP = "stop", POLICY = "policy";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService tasks = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean();
@@ -45,13 +45,6 @@ public final class LinkService extends Service {
                 runner.cancel(); ShizukuBridge.cancel();
             }
         }
-        if (intent != null && NETWORK.equals(intent.getAction())) {
-            generation++;
-            if (socket != null) socket.cancel();
-            socket = null;
-            state("正在重新连接");
-            connect();
-        }
         return START_STICKY;
     }
     static void createConnectionChannel(Context c) {
@@ -78,7 +71,7 @@ public final class LinkService extends Service {
         int g = ++generation;
         lastPong = SystemClock.elapsedRealtime();
         Request request = new Request.Builder().url("wss://" + base.substring(8) + "/api/device/ws?device_id=" + Config.own(this)).build();
-        socket = Net.client(this).newWebSocket(request, new WebSocketListener() {
+        socket = Net.client().newWebSocket(request, new WebSocketListener() {
             @Override public void onOpen(WebSocket ws, Response r) { handler.post(() -> { if (g == generation) { state("在线"); Config.log(LinkService.this, "连接成功"); } }); }
             @Override public void onMessage(WebSocket ws, String text) { handler.post(() -> { if (g == generation) receive(text); }); }
             @Override public void onFailure(WebSocket ws, Throwable t, Response r) { handler.post(() -> disconnected(g, t.getClass().getSimpleName())); }

@@ -80,7 +80,6 @@ public final class MainActivity extends ComponentActivity {
     }
     private void refreshState() {
         refreshAccessPermissions();
-        ui.setSecureDns(Config.prefs(this).getBoolean("secure_dns", true));
         ui.setSharing(Config.sharing(this));
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setRoot(Config.prefs(this).getBoolean("root", false));
@@ -91,12 +90,6 @@ public final class MainActivity extends ComponentActivity {
         ui.setAppControl(Config.prefs(this).getBoolean("app_control", false));
         ui.setAppControlMode(AppControl.mode(this));
         ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
-    }
-    public void changeSecureDns(boolean checked) {
-        if (busy) { toast("请等待当前请求完成"); return; }
-        Config.prefs(this).edit().putBoolean("secure_dns", checked).apply();
-        refreshState();
-        if (Config.sharing(this)) startService(new Intent(this, LinkService.class).setAction(LinkService.NETWORK));
     }
     public void changeStatusNotification(boolean checked) {
         NotificationManager nm = getSystemService(NotificationManager.class);

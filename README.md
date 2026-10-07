@@ -16,7 +16,7 @@ Android 0.2.0 将界面迁移为 Compose + Miuix 0.9.3：默认蓝色主题、�
 - 单次远程 Shell：普通应用、root 或 Shizuku/Sui 执行；标准输出、错误输出、退出码、超时和截断标记。
 - 暂停和恢复指定包名的应用：被操作手机选择设备所有者、Shizuku/Sui 或 root，独立授权开关默认关闭；提供本机恢复入口。
 - 本机主动开启 Shell；root 必须单独请求本机 root 管理器授权。关闭 Shell 同时关闭 root。
-- 前台通知、暂停共享、WebSocket 心跳与断线重连、DoH 失败时回退系统 DNS。
+- 前台通知、暂停共享、WebSocket 心跳与断线重连；使用系统 DNS。
 - 请求结果保留 24 小时后自动清理。第一版没有 MCP、OAuth、API Key 或账号。
 
 ## 部署 Railway
@@ -125,7 +125,7 @@ adb shell dpm set-device-owner com.lijinmu.pairlink/.PairLinkAdminReceiver
 
 超时或关闭开关只能尽力终止执行进程；命令已经造成的修改不会撤回，命令自行启动的独立后台进程也可能继续运行。请求超时、回传失败或退出界面后，不要直接重发有副作用的命令。接收方持久记录近期指令 ID，尽量避免重复执行。
 
-DoH 仅改善 DNS 解析，不保证中国内地的 HTTPS/WebSocket 可达性。暂不涉及域名配置。
+客户端使用系统 DNS，连接可用性取决于所在网络能否访问服务器。暂不涉及域名配置。
 
 ## 验证
 
