@@ -181,6 +181,17 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                     OverviewField("设备型号", listOf(Build.BRAND.trim(), Build.MODEL.trim()).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "未知" })
                                     OverviewField("安卓版本", Build.VERSION.RELEASE)
+                                    val version = remember(activity) {
+                                        runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }
+                                            .getOrNull().orEmpty().ifBlank { "未知" }
+                                    }
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().clickable(onClick = activity::tapVersion),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text("客户端版本号", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
+                                        Text(version)
+                                    }
                                 }
                             }
                         }
@@ -316,20 +327,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     }
                 }
             }
-            item {
-                val version = remember(activity) {
-                    runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName }
-                        .getOrNull().orEmpty().ifBlank { "未知" }
-                }
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = activity::tapVersion),
-                    insideMargin = PaddingValues(20.dp),
-                ) {
-                    Text("版本号", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
-                    Spacer(Modifier.height(6.dp))
-                    Text(version)
-                }
-            }
+
                     }
                 }
             }
