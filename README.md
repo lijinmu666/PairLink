@@ -1,8 +1,8 @@
 # PairLink Android 0.2.0 / Worker 0.1.0
 
-供双方主动安装、授权和开启共享的 Android 手机指令项目。一个仓库包含 `android/` 客户端与 `worker/` Cloudflare 服务端。
+供双方主动安装、授权和开启共享的 Android 手机指令项目。一个仓库包含 `android/` 客户端、`railway/` Railway 服务端和保留的 `worker/` Cloudflare 服务端，两个后端沿用相同客户端接口。
 
-Android 0.2.0 将界面迁移为 Compose + Miuix 0.9.3：默认蓝色主题、系统深浅色、按钮、输入框、开关、卡片、进度条及弹窗。未设置自定义应用图标或界面图标；系统桌面可能显示默认占位图标，前台服务仍保留系统要求的通知小图标。新增的通知查询、应用暂停及 Shizuku Shell 需要重新部署仓库中的 Worker。
+Android 0.2.0 将界面迁移为 Compose + Miuix 0.9.3：默认蓝色主题、系统深浅色、按钮、输入框、开关、卡片、进度条及弹窗。已设置白底小猫应用图标，结果页面提供箭头返回；前台服务保留系统要求的通知小图标。新增的通知查询、应用暂停及 Shizuku Shell 需要重新部署仓库中的 Worker。
 
 ## 第一版
 
@@ -17,6 +17,12 @@ Android 0.2.0 将界面迁移为 Compose + Miuix 0.9.3：默认蓝色主题、�
 - 本机主动开启 Shell；root 必须单独请求本机 root 管理器授权。关闭 Shell 同时关闭 root。
 - 前台通知、暂停共享、WebSocket 心跳与断线重连、DoH 失败时回退系统 DNS。
 - 请求结果保留 24 小时后自动清理。第一版没有 MCP、OAuth、API Key 或账号。
+
+## 部署 Railway
+
+部署步骤见 [railway/README.md](railway/README.md)。在 Railway 从本仓库创建服务，Root Directory 设置为 `/railway`，使用 Dockerfile 自动构建；添加挂载至 `/data` 的 Volume，并设置 `DATA_DIR=/data`，健康检查路径 `/health`。保持单实例并关闭自动休眠，然后生成服务域名。双方手机暂停共享，填写同一个 Railway HTTPS 根地址并保存，重新开启共享即可，不需要重新编译 APK。
+
+Cloudflare Worker 完整保留；两个后端的指令记录独立，可通过更换客户端服务器地址切换。
 
 ## 部署 Worker
 
@@ -33,7 +39,7 @@ npm run deploy
 
 用 `https://你的Worker地址/health` 检查部署。客户端填写 HTTPS 根地址，不含 `/health`、`/mcp` 或查询参数。
 
-本版只实现 Cloudflare Worker，不包含 Railway 服务端。
+Railway 和 Cloudflare Worker 可二选一，不需要同时部署。
 
 ## 编译 APK
 
