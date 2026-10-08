@@ -11,6 +11,9 @@ import android.content.pm.PackageManager;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Process;
+import android.os.PowerManager;
+import android.hardware.display.DisplayManager;
+import android.view.Display;
 import android.os.SystemClock;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -25,13 +28,46 @@ final class DeviceQueries {
         String manufacturer = Build.MANUFACTURER == null || Build.MANUFACTURER.trim().isEmpty() ? Build.BRAND : Build.MANUFACTURER;
         String model = Build.MODEL == null ? "" : Build.MODEL;
         String deviceModel = ((manufacturer == null ? "" : manufacturer.trim()) + " " + model.trim()).trim();
-        JSONObject foreground = currentApp(c);
+        Boolean screenOff = screenOff(c);
+        JSONObject foreground = Boolean.FALSE.equals(screenOff) ? currentApp(c) : skippedCurrentApp(screenOff);
+        Boolean latestScreenOff = screenOff(c);
+        if (!Boolean.FALSE.equals(latestScreenOff)) foreground = skippedCurrentApp(latestScreenOff);
+        screenOff = latestScreenOff;
         return new JSONObject().put("device_id", Config.own(c))
             .put("device_model", deviceModel).put("android_version", Build.VERSION.RELEASE == null ? "" : Build.VERSION.RELEASE)
             .put("android_sdk", Build.VERSION.SDK_INT).put("uptime_ms", SystemClock.elapsedRealtime())
+            .put("screen_off", screenOff == null ? JSONObject.NULL : screenOff)
             .put("current_app", foreground).put("battery_percent", scale > 0 ? Math.round(level * 100f / scale) : -1)
             .put("charging", state == BatteryManager.BATTERY_STATUS_CHARGING || state == BatteryManager.BATTERY_STATUS_FULL)
             .put("shell_enabled", Config.shell(c)).put("root_enabled", Config.root(c)).put("queried_at", System.currentTimeMillis());
+    }
+    static Boolean screenOff(Context c) {
+        Boolean interactive = null;
+        try {
+            PowerManager power = c.getSystemService(PowerManager.class);
+            if (power != null) interactive = power.isInteractive();
+        } catch (RuntimeException ignored) {}
+        if (Boolean.FALSE.equals(interactive)) return true;
+        try {
+            DisplayManager manager = c.getSystemService(DisplayManager.class);
+            Display display = manager == null ? null : manager.getDisplay(Display.DEFAULT_DISPLAY);
+            if (display != null) {
+                switch (display.getState()) {
+                    case Display.STATE_OFF:
+                    case Display.STATE_DOZE:
+                    case Display.STATE_DOZE_SUSPEND:
+                    case Display.STATE_ON_SUSPEND: return true;
+                    case Display.STATE_ON:
+                    case Display.STATE_VR: return false;
+                    default: break;
+                }
+            }
+        } catch (RuntimeException ignored) {}
+        return interactive == null ? null : !interactive;
+    }
+    private static JSONObject skippedCurrentApp(Boolean screenOff) throws Exception {
+        return new JSONObject().put("package_name", "").put("app_name", "未知").put("skipped", true)
+            .put("skip_reason", Boolean.TRUE.equals(screenOff) ? "息屏中，未查询前台应用" : "屏幕状态未知，未查询前台应用");
     }
     static boolean usageAllowed(Context c) {
         AppOpsManager ops = (AppOpsManager)c.getSystemService(Context.APP_OPS_SERVICE);

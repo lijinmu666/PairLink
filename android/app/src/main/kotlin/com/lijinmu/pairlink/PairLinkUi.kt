@@ -450,6 +450,8 @@ private fun duration(milliseconds: Long): String {
 private fun queryPage(action: String, result: JSONObject, device: String): ResultPage {
     if (action == "get_status") {
         val current = result.optJSONObject("current_app") ?: JSONObject()
+        val screenKnown = result.has("screen_off") && !result.isNull("screen_off")
+        val screenOff = screenKnown && result.optBoolean("screen_off")
         val battery = result.optInt("battery_percent", -1)
         val uptime = result.optLong("uptime_ms", -1)
         val cards = listOf(
@@ -458,14 +460,20 @@ private fun queryPage(action: String, result: JSONObject, device: String): Resul
                 "安卓版本" to result.optString("android_version").ifBlank { "未知" },
                 "API" to if (result.has("android_sdk")) result.optInt("android_sdk").toString() else "未知",
                 "已开机" to if (uptime >= 0) duration(uptime) else "未知",
+                "是否息屏" to if (!screenKnown) "未知" else if (screenOff) "是" else "否",
             )),
             ResultCard("电量信息", fields = listOf(
                 "剩余电量" to if (battery >= 0) "${battery}%" else "未知",
                 "充电状态" to if (result.optBoolean("charging")) "正在充电" else "未充电",
             )),
-            ResultCard("当前屏幕应用", appName(current), fields = listOf(
-                "包名" to current.optString("package_name").ifBlank { "未知" },
-            )),
+            if (screenOff || current.optBoolean("skipped")) {
+                ResultCard("当前屏幕应用", body = if (screenOff) "息屏中，未查询前台应用"
+                    else current.optString("skip_reason").ifBlank { "未查询前台应用" })
+            } else {
+                ResultCard("当前屏幕应用", appName(current), fields = listOf(
+                    "包名" to current.optString("package_name").ifBlank { "未知" },
+                ))
+            },
             ResultCard("执行授权", fields = listOf(
                 "Shell" to if (result.optBoolean("shell_enabled")) "开启" else "关闭",
                 "root" to if (result.optBoolean("root_enabled")) "开启" else "关闭",
