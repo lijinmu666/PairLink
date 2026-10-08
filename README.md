@@ -46,7 +46,7 @@ Railway 和 Cloudflare Worker 可二选一，不需要同时部署。
 
 ## 编译 APK
 
-要求 Android 8.0 或更高版本。使用 JDK 17、Gradle 9.7.1、Android SDK 37.1 和 Build Tools 36.0.0。
+要求 Android 8.0 或更高版本。使用 JDK 21、Gradle 9.7.1、Android SDK 37.1 和 Build Tools 36.0.0。
 
 仓库包含 Gradle Wrapper 9.7.1，可以直接用支持 AGP 9.3 的 Android Studio 打开 `android/`，等待依赖同步后构建 APK。也包含可选的 GitHub Actions 编译流程。
 
