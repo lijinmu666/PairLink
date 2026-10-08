@@ -3,6 +3,9 @@ package com.lijinmu.pairlink;
 import android.content.Context;
 import android.content.SharedPreferences;
 import java.util.UUID;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Collections;
 
 final class Config {
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("pairlink", Context.MODE_PRIVATE); }
@@ -17,6 +20,10 @@ final class Config {
     static String peer(Context c) { return prefs(c).getString("peer", ""); }
     static String server(Context c) { return prefs(c).getString("server", ""); }
     static boolean sharing(Context c) { return prefs(c).getBoolean("sharing", false); }
+    static Set<String> pauseBlacklist(Context c) {
+        return new HashSet<>(prefs(c).getStringSet("pause_blacklist", Collections.emptySet()));
+    }
+    static boolean pauseBlocked(Context c, String pkg) { return pauseBlacklist(c).contains(pkg); }
     static String nightMode(Context c) {
         String mode = prefs(c).getString("night_mode", "system");
         return "on".equals(mode) || "off".equals(mode) ? mode : "system";

@@ -3,6 +3,7 @@ package com.lijinmu.pairlink;
 import android.app.*;
 import android.content.*;
 import android.content.pm.PackageManager;
+import android.content.pm.ApplicationInfo;
 import android.os.*;
 import android.provider.Settings;
 import android.widget.Toast;
@@ -10,6 +11,8 @@ import androidx.activity.ComponentActivity;
 import android.content.SharedPreferences;
 import org.json.*;
 import java.util.concurrent.*;
+import java.util.Set;
+import java.util.HashSet;
 import rikka.shizuku.Shizuku;
 import com.rosan.dhizuku.api.DhizukuRequestPermissionListener;
 
@@ -107,6 +110,7 @@ public final class MainActivity extends ComponentActivity {
         ui.setShizuku(Config.prefs(this).getBoolean("shizuku", false));
         ui.setAppControl(Config.prefs(this).getBoolean("app_control", false));
         ui.setAppControlMode(AppControl.mode(this));
+        ui.setPauseBlacklistCount(Config.pauseBlacklist(this).size());
         ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
     }
     public void changeStatusNotification(boolean checked) {
@@ -216,6 +220,7 @@ public final class MainActivity extends ComponentActivity {
         if (busy) { toast("请等待当前请求完成"); return; }
         AppPickerPage picker = ui.getAppPicker();
         if (picker == null) { openAppPicker(); return; }
+        if (picker.getBlacklist()) { toast("请从操作页选择对方应用"); return; }
         if (!pickerMatches(picker)) { ui.clearAppPicker(); toast("连接设置已更改，请重新获取对方应用列表"); return; }
         JSONArray selected = ui.selectedAppRequests();
         if (selected.length() == 0) { toast("请先选择应用"); return; }
@@ -229,8 +234,48 @@ public final class MainActivity extends ComponentActivity {
     }
     public void openAppPicker() { send("get_installed_apps", new JSONObject(), true); }
     private boolean pickerMatches(AppPickerPage picker) {
-        return picker.getServer().equals(Config.server(this)) && picker.getSender().equals(Config.own(this))
+        return !picker.getBlacklist() && picker.getServer().equals(Config.server(this)) && picker.getSender().equals(Config.own(this))
             && picker.getDevice().equals(Config.peer(this));
+    }
+    public void openPauseBlacklist() {
+        if (busy) { toast("请等待当前请求完成"); return; }
+        AppPickerPage picker = ui.getAppPicker();
+        Set<String> chosen = picker != null && picker.getBlacklist()
+            ? new HashSet<>(ui.getSelectedPeerApps()) : Config.pauseBlacklist(this);
+        busy = true; ui.setBusy(true); show("正在加载本机应用……");
+        network.execute(() -> {
+            try {
+                JSONArray apps = new JSONArray();
+                Set<String> installed = new HashSet<>();
+                for (ApplicationInfo app : getPackageManager().getInstalledApplications(0)) {
+                    if ((app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
+                    String name = app.packageName;
+                    try { name = getPackageManager().getApplicationLabel(app).toString(); } catch (RuntimeException ignored) {}
+                    apps.put(new JSONObject().put("package_name", app.packageName).put("app_name", name).put("installed", true));
+                    installed.add(app.packageName);
+                }
+                for (String pkg : chosen) {
+                    if (installed.contains(pkg) || getPackageName().equals(pkg)) continue;
+                    apps.put(new JSONObject().put("package_name", pkg).put("app_name", pkg).put("installed", false));
+                }
+                runOnUiThread(() -> { if (!isDestroyed()) ui.showPauseBlacklist(apps, chosen, Config.own(this), getPackageName()); });
+            } catch (Exception e) { show("加载本机应用失败：" + e.getMessage()); }
+            finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
+        });
+    }
+    public void savePauseBlacklist() {
+        if (busy) { toast("请等待当前请求完成"); return; }
+        AppPickerPage picker = ui.getAppPicker();
+        if (picker == null || !picker.getBlacklist()) return;
+        Set<String> selected = new HashSet<>();
+        JSONArray apps = ui.selectedAppRequests();
+        for (int i = 0; i < apps.length(); i++) {
+            String pkg = apps.optJSONObject(i).optString("package_name");
+            if (!getPackageName().equals(pkg) && pkg.length() <= 255 && AppControl.PACKAGE.matcher(pkg).matches()) selected.add(pkg);
+        }
+        Config.prefs(this).edit().putStringSet("pause_blacklist", selected).apply();
+        ui.clearAppPicker(); refreshState();
+        ui.message("应用暂停黑名单", "已保存，共 " + selected.size() + " 个应用。对方不能通过应用暂停功能暂停这些应用，仍可恢复。");
     }
     private void executePeerApps(AppPickerPage picker, JSONArray selected, boolean suspended) {
         if (busy) { toast("请等待当前请求完成"); return; }

@@ -48,6 +48,7 @@ class UiState {
     var appPicker by mutableStateOf<AppPickerPage?>(null)
     var appSearch by mutableStateOf("")
     var selectedPeerApps by mutableStateOf<Set<String>>(emptySet())
+    var pauseBlacklistCount by mutableIntStateOf(0)
     var shizuku by mutableStateOf(false)
     var dhizuku by mutableStateOf(false)
     var nightMode by mutableStateOf("system")
@@ -96,6 +97,21 @@ class UiState {
             result.put(JSONObject().put("package_name", it.packageName).put("app_name", it.name))
         }
         return result
+    }
+    fun showPauseBlacklist(array: JSONArray, chosen: Set<String>, device: String, protectedPackage: String) {
+        val apps = (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val pkg = item.optString("package_name")
+            if (pkg.length > 255 || !AppControl.PACKAGE.matcher(pkg).matches()) return@mapNotNull null
+            PeerApp(pkg, item.optString("app_name").ifBlank { pkg }, pkg == protectedPackage, item.optBoolean("installed", true))
+        }.distinctBy { it.packageName }.sortedWith(compareBy<PeerApp> { it.name.lowercase(Locale.ROOT) }.thenBy { it.packageName })
+        val refreshing = appPicker?.blacklist == true
+        appPicker = AppPickerPage("", "", device, apps, false, blacklist = true)
+        selectedPeerApps = chosen.intersect(apps.filterNot { it.protectedApp }.map { it.packageName }.toSet())
+        if (!refreshing) appSearch = ""
+        resultPage = null
+        busy = false
+        dialog = null
     }
     fun clearAppPicker() {
         appPicker = null
@@ -402,6 +418,14 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
             item {
+                Section("应用暂停黑名单") {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("已保护 ${ui.pauseBlacklistCount} 个本机应用。加入后，对方不能远程暂停，仍可恢复。")
+                        Action("管理黑名单", activity::openPauseBlacklist, enabled = !ui.busy, primary = false)
+                    }
+                }
+            }
+            item {
                 Section("本机紧急恢复") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("共享关闭后也可以恢复本机由 PairLink 暂停的应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -701,8 +725,8 @@ private val BackArrow: ImageVector by lazy {
 }
 
 
-data class PeerApp(val packageName: String, val name: String, val protectedApp: Boolean)
-data class AppPickerPage(val server: String, val sender: String, val device: String, val apps: List<PeerApp>, val truncated: Boolean)
+data class PeerApp(val packageName: String, val name: String, val protectedApp: Boolean, val installed: Boolean = true)
+data class AppPickerPage(val server: String, val sender: String, val device: String, val apps: List<PeerApp>, val truncated: Boolean, val blacklist: Boolean = false)
 
 @Composable
 private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPickerPage) {
@@ -713,7 +737,8 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = "选择对方应用", largeTitle = "选择对方应用",
+                title = if (page.blacklist) "应用暂停黑名单" else "选择对方应用",
+                largeTitle = if (page.blacklist) "应用暂停黑名单" else "选择对方应用",
                 navigationIcon = {
                     IconButton(onClick = { if (!ui.busy) { keyboard?.hide(); ui.appPicker = null } }, minWidth = 48.dp, minHeight = 48.dp) {
                         Icon(BackArrow, contentDescription = "返回", tint = MiuixTheme.colorScheme.onSurface)
@@ -724,12 +749,13 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("对方设备：${page.device}", color = MiuixTheme.colorScheme.primary)
+                Text((if (page.blacklist) "本机设备：" else "对方设备：") + page.device, color = MiuixTheme.colorScheme.primary)
+                if (page.blacklist) Text("勾选后保存，阻止对方通过应用暂停功能暂停这些应用。不会自动恢复已经暂停的应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Input(ui.appSearch, { ui.appSearch = it }, "搜索应用名或包名", enabled = !ui.busy)
                 Text("共 ${page.apps.size} 个应用 · 显示 ${visible.size} 个 · 已选 ${ui.selectedPeerApps.size} 个",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton("刷新列表", activity::openAppPicker, Modifier.weight(1f), enabled = !ui.busy)
+                    TextButton("刷新列表", { if (page.blacklist) activity.openPauseBlacklist() else activity.openAppPicker() }, Modifier.weight(1f), enabled = !ui.busy)
                     TextButton("清空选择", { ui.selectedPeerApps = emptySet() }, Modifier.weight(1f), enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty())
                 }
                 if (page.truncated) Text("应用列表过长，仅显示服务器返回的部分应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -741,14 +767,14 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
             ) {
                 if (visible.isEmpty()) {
                     item { Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
-                        Text(if (page.apps.isEmpty()) "对方没有可显示的用户应用" else "没有匹配的应用")
+                        Text(if (page.apps.isEmpty()) "没有可显示的用户应用" else "没有匹配的应用")
                     } }
                 }
                 items(visible, key = { it.packageName }) { app ->
                     Card(Modifier.fillMaxWidth()) {
                         CheckboxPreference(
                             title = app.name,
-                            summary = app.packageName + if (app.protectedApp) "\nPairLink 本身不可选择" else "",
+                            summary = app.packageName + (if (app.protectedApp) "\nPairLink 本身已受保护" else "") + (if (!app.installed) "\n未安装，保留原黑名单记录" else ""),
                             checked = app.packageName in ui.selectedPeerApps,
                             onCheckedChange = { checked ->
                                 ui.selectedPeerApps = if (checked) ui.selectedPeerApps + app.packageName else ui.selectedPeerApps - app.packageName
@@ -759,10 +785,15 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
                 }
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton("暂停所选", { keyboard?.hide(); activity.suspendPeerApp() }, Modifier.weight(1f),
-                    enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty(), colors = ButtonDefaults.textButtonColorsPrimary())
-                TextButton("恢复所选", { keyboard?.hide(); activity.resumePeerApp() }, Modifier.weight(1f),
-                    enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty())
+                if (page.blacklist) {
+                    TextButton("保存黑名单", { keyboard?.hide(); activity.savePauseBlacklist() }, Modifier.weight(1f),
+                        enabled = !ui.busy, colors = ButtonDefaults.textButtonColorsPrimary())
+                } else {
+                    TextButton("暂停所选", { keyboard?.hide(); activity.suspendPeerApp() }, Modifier.weight(1f),
+                        enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty(), colors = ButtonDefaults.textButtonColorsPrimary())
+                    TextButton("恢复所选", { keyboard?.hide(); activity.resumePeerApp() }, Modifier.weight(1f),
+                        enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty())
+                }
             }
         }
     }

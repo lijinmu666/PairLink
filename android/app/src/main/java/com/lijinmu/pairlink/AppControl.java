@@ -47,11 +47,14 @@ final class AppControl {
         ApplicationInfo app = c.getPackageManager().getApplicationInfo(pkg, 0);
         if (suspended && (app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0)
             throw new Exception("不能暂停系统应用");
+        if (suspended && !local && Config.pauseBlocked(c, pkg))
+            throw new Exception("此应用已被本机加入暂停黑名单，不能远程暂停");
         SharedPreferences prefs = Config.prefs(c);
         String backend = backend(c, pkg, suspended);
         if ("device_owner".equals(backend))
             throw new Exception("这是旧版设备所有者暂停记录，请使用旧版 PairLink 恢复后再迁移到 Dhizuku");
         BooleanSupplier allowed = () -> {
+            if (suspended && !local && Config.pauseBlocked(c, pkg)) return false;
             if (!local && (!Config.sharing(c) || !prefs.getBoolean("app_control", false))) return false;
             switch (backend) {
                 case "dhizuku": return DhizukuBridge.granted(c) && (local || prefs.getBoolean("dhizuku", false));
