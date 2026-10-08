@@ -230,7 +230,6 @@ private fun Screen(activity: MainActivity, ui: UiState) {
     }
     if (picker != null) {
         AppPickerScreen(activity, ui, picker)
-        UiDialogs(ui)
         return
     }
     Scaffold(
@@ -796,5 +795,6 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
                 }
             }
         }
+        UiDialogs(ui)
     }
 }
