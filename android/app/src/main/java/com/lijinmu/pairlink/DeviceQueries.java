@@ -98,7 +98,7 @@ final class DeviceQueries {
         installed.sort((a, b) -> a.packageName.compareToIgnoreCase(b.packageName));
         boolean truncated = false;
         for (ApplicationInfo app : installed) {
-            if ((app.flags & ApplicationInfo.FLAG_SYSTEM) != 0) continue;
+            if ((app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
             String name;
             try { name = c.getPackageManager().getApplicationLabel(app).toString(); } catch (Exception e) { name = app.packageName; }
             apps.put(new JSONObject().put("package_name", app.packageName).put("app_name", name));

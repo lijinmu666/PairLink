@@ -34,6 +34,7 @@ import java.util.Locale
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.preference.CheckboxPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
@@ -44,7 +45,9 @@ class UiState {
     var own by mutableStateOf("")
     var peer by mutableStateOf("")
     var script by mutableStateOf("")
-    var targetPackage by mutableStateOf("")
+    var appPicker by mutableStateOf<AppPickerPage?>(null)
+    var appSearch by mutableStateOf("")
+    var selectedPeerApps by mutableStateOf<Set<String>>(emptySet())
     var shizuku by mutableStateOf(false)
     var dhizuku by mutableStateOf(false)
     var nightMode by mutableStateOf("system")
@@ -69,6 +72,56 @@ class UiState {
     var connection by mutableStateOf("共享已关闭")
     var dialog by mutableStateOf<UiDialog?>(null)
     var resultPage by mutableStateOf<ResultPage?>(null)
+
+    fun showAppPicker(result: JSONObject, server: String, sender: String, device: String, protectedPackage: String) {
+        val array = result.optJSONArray("apps") ?: JSONArray()
+        val apps = (0 until array.length()).mapNotNull { index ->
+            val item = array.optJSONObject(index) ?: return@mapNotNull null
+            val pkg = item.optString("package_name")
+            if (pkg.length > 255 || !AppControl.PACKAGE.matcher(pkg).matches()) return@mapNotNull null
+            PeerApp(pkg, item.optString("app_name").ifBlank { pkg }, pkg == protectedPackage)
+        }.distinctBy { it.packageName }.sortedWith(compareBy<PeerApp> { it.name.lowercase(Locale.ROOT) }.thenBy { it.packageName })
+        val old = appPicker
+        val sameDevice = old != null && old.server == server && old.sender == sender && old.device == device
+        selectedPeerApps = if (sameDevice) selectedPeerApps.intersect(apps.filterNot { it.protectedApp }.map { it.packageName }.toSet()) else emptySet()
+        if (!sameDevice) appSearch = ""
+        appPicker = AppPickerPage(server, sender, device, apps, result.optBoolean("truncated"))
+        resultPage = null
+        busy = false
+        dialog = null
+    }
+    fun selectedAppRequests(): JSONArray {
+        val result = JSONArray()
+        appPicker?.apps?.filter { it.packageName in selectedPeerApps && !it.protectedApp }?.forEach {
+            result.put(JSONObject().put("package_name", it.packageName).put("app_name", it.name))
+        }
+        return result
+    }
+    fun clearAppPicker() {
+        appPicker = null
+        selectedPeerApps = emptySet()
+        appSearch = ""
+    }
+    fun showPeerAppResults(results: JSONArray, device: String, suspended: Boolean) {
+        val cards = (0 until results.length()).map { index ->
+            val item = results.getJSONObject(index)
+            val value = item.optJSONObject("result") ?: JSONObject()
+            val status = item.optString("status")
+            ResultCard(appName(item), item.optString("package_name"), fields = listOf(
+                "结果" to when (status) {
+                    "completed" -> if (value.optBoolean("suspended")) (if (suspended) "已暂停" else "仍被暂停") else "未暂停"
+                    "not_executed" -> "未执行"
+                    "uncertain" -> "执行状态未确认"
+                    else -> "执行失败"
+                },
+            ) + if (status == "completed") listOf("执行方式" to AppControl.label(value.optString("backend"))) else emptyList(),
+                body = item.optString("error").ifBlank { value.optString("note") })
+        }
+        busy = false
+        dialog = null
+        resultPage = ResultPage(if (suspended) "应用暂停结果" else "应用恢复结果", device, cards,
+            "共 ${cards.size} 个应用", "操作逐个执行。状态未确认的应用请检查后再操作；返回可继续选择应用。")
+    }
 
     fun showQuery(action: String, result: JSONObject, device: String) {
         val page = queryPage(action, result, device)
@@ -148,12 +201,20 @@ private fun Screen(activity: MainActivity, ui: UiState) {
         rememberLazyListState(),
     )
     val page = ui.resultPage
+    val picker = ui.appPicker
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(page) { if (page != null) keyboard?.hide() }
-    BackHandler(enabled = page != null) { ui.resultPage = null }
-    BackHandler(enabled = page == null && selectedTab != 0 && ui.dialog == null) { selectedTab = 0 }
+    BackHandler(enabled = page != null && !ui.busy && ui.dialog == null) { ui.resultPage = null }
+    BackHandler(enabled = page == null && picker != null && !ui.busy && ui.dialog == null) { ui.appPicker = null }
+    BackHandler(enabled = page == null && picker == null && selectedTab != 0 && ui.dialog == null && !ui.busy) { selectedTab = 0 }
+    BackHandler(enabled = ui.busy) {}
     if (page != null) {
         key(page) { ResultScreen(page, onBack = { ui.resultPage = null }) }
+        return
+    }
+    if (picker != null) {
+        AppPickerScreen(activity, ui, picker)
+        UiDialogs(ui)
         return
     }
     Scaffold(
@@ -249,9 +310,8 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         item {
                             Section("暂停和恢复应用") {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Input(ui.targetPackage, { ui.targetPackage = it }, "对方设备中的应用包名，例如 com.example.kskblzdjd")
-                                    Action("暂停", activity::suspendPeerApp, enabled = !ui.busy)
-                                    Action("恢复", activity::resumePeerApp, enabled = !ui.busy, primary = false)
+                                    Text("从对方的用户应用列表中搜索并勾选应用，再暂停或恢复。")
+                                    Action("选择对方应用", activity::openAppPicker, enabled = !ui.busy)
                     }
                 }
             }
@@ -354,6 +414,12 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
         }
+        UiDialogs(ui)
+    }
+}
+
+@Composable
+private fun UiDialogs(ui: UiState) {
         val dialog = ui.dialog
         val waiting = dialog?.isResult == true && ui.busy
         OverlayDialog(
@@ -383,7 +449,6 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
         }
-    }
 }
 
 @Composable
@@ -633,4 +698,72 @@ private val BackArrow: ImageVector by lazy {
             lineTo(12f, 19f)
         }
     }.build()
+}
+
+
+data class PeerApp(val packageName: String, val name: String, val protectedApp: Boolean)
+data class AppPickerPage(val server: String, val sender: String, val device: String, val apps: List<PeerApp>, val truncated: Boolean)
+
+@Composable
+private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPickerPage) {
+    val search = ui.appSearch.trim()
+    val visible = page.apps.filter { search.isEmpty() || it.name.contains(search, ignoreCase = true) || it.packageName.contains(search, ignoreCase = true) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = "选择对方应用", largeTitle = "选择对方应用",
+                navigationIcon = {
+                    IconButton(onClick = { if (!ui.busy) { keyboard?.hide(); ui.appPicker = null } }, minWidth = 48.dp, minHeight = 48.dp) {
+                        Icon(BackArrow, contentDescription = "返回", tint = MiuixTheme.colorScheme.onSurface)
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("对方设备：${page.device}", color = MiuixTheme.colorScheme.primary)
+                Input(ui.appSearch, { ui.appSearch = it }, "搜索应用名或包名", enabled = !ui.busy)
+                Text("共 ${page.apps.size} 个应用 · 显示 ${visible.size} 个 · 已选 ${ui.selectedPeerApps.size} 个",
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton("刷新列表", activity::openAppPicker, Modifier.weight(1f), enabled = !ui.busy)
+                    TextButton("清空选择", { ui.selectedPeerApps = emptySet() }, Modifier.weight(1f), enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty())
+                }
+                if (page.truncated) Text("应用列表过长，仅显示服务器返回的部分应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (visible.isEmpty()) {
+                    item { Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
+                        Text(if (page.apps.isEmpty()) "对方没有可显示的用户应用" else "没有匹配的应用")
+                    } }
+                }
+                items(visible, key = { it.packageName }) { app ->
+                    Card(Modifier.fillMaxWidth()) {
+                        CheckboxPreference(
+                            title = app.name,
+                            summary = app.packageName + if (app.protectedApp) "\nPairLink 本身不可选择" else "",
+                            checked = app.packageName in ui.selectedPeerApps,
+                            onCheckedChange = { checked ->
+                                ui.selectedPeerApps = if (checked) ui.selectedPeerApps + app.packageName else ui.selectedPeerApps - app.packageName
+                            },
+                            enabled = !ui.busy && !app.protectedApp,
+                        )
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton("暂停所选", { keyboard?.hide(); activity.suspendPeerApp() }, Modifier.weight(1f),
+                    enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty(), colors = ButtonDefaults.textButtonColorsPrimary())
+                TextButton("恢复所选", { keyboard?.hide(); activity.resumePeerApp() }, Modifier.weight(1f),
+                    enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty())
+            }
+        }
+    }
 }

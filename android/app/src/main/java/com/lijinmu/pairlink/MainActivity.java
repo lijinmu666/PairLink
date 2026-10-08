@@ -213,11 +213,74 @@ public final class MainActivity extends ComponentActivity {
     public void suspendPeerApp() { changePeerApp(true); }
     public void resumePeerApp() { changePeerApp(false); }
     private void changePeerApp(boolean suspended) {
-        String pkg = ui.getTargetPackage().trim();
-        if (pkg.length() > 255 || !AppControl.PACKAGE.matcher(pkg).matches()) { toast("请输入有效的应用包名"); return; }
-        ui.confirm(suspended ? "暂停对方应用" : "恢复对方应用", pkg, suspended ? "暂停" : "恢复", () -> {
-            try { send("set_app_suspended", new JSONObject().put("package_name", pkg).put("suspended", suspended)); }
-            catch (Exception e) { show(e.getMessage()); }
+        if (busy) { toast("请等待当前请求完成"); return; }
+        AppPickerPage picker = ui.getAppPicker();
+        if (picker == null) { openAppPicker(); return; }
+        if (!pickerMatches(picker)) { ui.clearAppPicker(); toast("连接设置已更改，请重新获取对方应用列表"); return; }
+        JSONArray selected = ui.selectedAppRequests();
+        if (selected.length() == 0) { toast("请先选择应用"); return; }
+        StringBuilder names = new StringBuilder("对方设备：").append(picker.getDevice()).append("\n");
+        for (int i = 0; i < selected.length(); i++) {
+            JSONObject item = selected.optJSONObject(i);
+            names.append("\n").append(item.optString("app_name")).append("\n").append(item.optString("package_name")).append("\n");
+        }
+        ui.confirm((suspended ? "暂停" : "恢复") + "所选 " + selected.length() + " 个应用", names.toString(), suspended ? "暂停" : "恢复",
+            () -> executePeerApps(picker, selected, suspended));
+    }
+    public void openAppPicker() { send("get_installed_apps", new JSONObject(), true); }
+    private boolean pickerMatches(AppPickerPage picker) {
+        return picker.getServer().equals(Config.server(this)) && picker.getSender().equals(Config.own(this))
+            && picker.getDevice().equals(Config.peer(this));
+    }
+    private void executePeerApps(AppPickerPage picker, JSONArray selected, boolean suspended) {
+        if (busy) { toast("请等待当前请求完成"); return; }
+        if (!settingsValid() || !pickerMatches(picker)) { ui.clearAppPicker(); toast("连接设置已更改，请重新选择应用"); return; }
+        busy = true; ui.setBusy(true); show("正在处理所选应用……");
+        network.execute(() -> {
+            JSONArray results = new JSONArray();
+            String stopped = null;
+            try {
+                for (int i = 0; i < selected.length(); i++) {
+                    JSONObject app = selected.getJSONObject(i);
+                    String pkg = app.getString("package_name");
+                    JSONObject item = new JSONObject().put("package_name", pkg).put("app_name", app.optString("app_name", pkg));
+                    if (stopped != null) {
+                        results.put(item.put("status", "not_executed").put("error", stopped));
+                        continue;
+                    }
+                    if (!pickerMatches(picker)) {
+                        stopped = "连接设置已更改，后续应用未执行";
+                        results.put(item.put("status", "not_executed").put("error", stopped));
+                        continue;
+                    }
+                    show("正在" + (suspended ? "暂停" : "恢复") + " " + (i + 1) + " / " + selected.length() + "\n" + app.optString("app_name", pkg) + "\n" + pkg);
+                    try {
+                        JSONObject response = requestCommand(picker.getServer(), picker.getSender(), picker.getDevice(), "set_app_suspended",
+                            new JSONObject().put("package_name", pkg).put("suspended", suspended));
+                        String status = response.optString("status");
+                        if ("completed".equals(status)) {
+                            JSONObject result = response.getJSONObject("result");
+                            if (!pkg.equals(result.optString("package_name"))) throw new Exception("返回的应用与请求不一致");
+                            item.put("status", "completed").put("result", result);
+                        } else if ("failed".equals(status)) {
+                            item.put("status", "failed").put("error", response.optString("error", "对方执行失败"));
+                        } else if ("offline".equals(status)) {
+                            stopped = "对方已离线，后续应用未执行";
+                            item.put("status", "not_executed").put("error", "对方当前离线");
+                        } else {
+                            stopped = "上一项状态未确认，后续应用未执行。请检查后再操作";
+                            item.put("status", "uncertain").put("error", "请求超时或仍在执行，指令 ID：" + response.optString("command_id") + "。请勿直接重复提交");
+                        }
+                        Config.log(this, (suspended ? "暂停 " : "恢复 ") + pkg + "：" + item.optString("status"));
+                    } catch (Exception e) {
+                        stopped = "请求中断，后续应用未执行。请检查对方状态后再操作";
+                        item.put("status", "uncertain").put("error", "请求失败：" + e.getMessage() + "。该应用可能已经执行，请勿直接重复提交");
+                    }
+                    results.put(item);
+                }
+                runOnUiThread(() -> { if (!isDestroyed()) ui.showPeerAppResults(results, picker.getDevice(), suspended); });
+            } catch (Exception e) { show("批量操作失败：" + e.getMessage() + "。部分应用可能已经执行，请检查后再操作"); }
+            finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
         });
     }
     public void restoreLocalApps() {
@@ -343,6 +406,7 @@ public final class MainActivity extends ComponentActivity {
         } catch (Exception e) { return false; }
     }
     public void saveSettings() {
+        if (busy) { toast("请等待当前请求完成"); return; }
         if (Config.sharing(this)) { toast("请先暂停共享再修改连接设置"); return; }
         String s = Config.normalize(ui.getServer()), a = ui.getOwn().trim(), b = ui.getPeer().trim();
         try {
@@ -350,25 +414,43 @@ public final class MainActivity extends ComponentActivity {
             if (!"https".equals(url.scheme()) || !url.encodedPath().equals("/") || url.query() != null || url.fragment() != null
                 || !url.username().isEmpty() || !url.password().isEmpty() || !Config.validId(a) || !Config.validId(b) || a.equals(b)) throw new Exception();
             Config.prefs(this).edit().putString("server", s).putString("own", a).putString("peer", b).apply();
+            ui.clearAppPicker();
             toast("已保存");
         } catch (Exception e) { toast("填写 HTTPS 根地址；双方 ID 必须不同，只含字母、数字、点、下划线或连字符"); }
     }
     private void send(String action, JSONObject params) {
+        send(action, params, false);
+    }
+    private JSONObject requestCommand(String base, String sender, String target, String action, JSONObject params) throws Exception {
+        JSONObject body = new JSONObject().put("sender_id", sender).put("target_id", target).put("action", action).put("params", params);
+        JSONObject response = Net.request(this, base, "/api/commands", body);
+        String id = response.optString("command_id");
+        if ("pending".equals(response.optString("status")) && id.isEmpty()) throw new Exception("服务器未返回指令 ID");
+        long deadline = SystemClock.elapsedRealtime() + 50000;
+        while ("pending".equals(response.optString("status")) && SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(1000);
+            response = Net.request(this, base, "/api/commands/" + id, null);
+        }
+        return response;
+    }
+    private void send(String action, JSONObject params, boolean chooseApps) {
         if (busy) { toast("请等待当前请求完成"); return; }
         if (!settingsValid()) { toast("请先保存连接设置"); return; }
         busy = true; ui.setBusy(true); show("正在请求对方……");
         String base = Config.server(this), sender = Config.own(this), target = Config.peer(this);
         network.execute(() -> {
             try {
-                JSONObject body = new JSONObject().put("sender_id", sender).put("target_id", target).put("action", action).put("params", params);
-                JSONObject response = Net.request(this, base, "/api/commands", body);
-                String id = response.getString("command_id");
-                long deadline = SystemClock.elapsedRealtime() + 50000;
-                while ("pending".equals(response.optString("status")) && SystemClock.elapsedRealtime() < deadline) {
-                    Thread.sleep(1000);
-                    response = Net.request(this, base, "/api/commands/" + id, null);
-                }
-                if ("completed".equals(response.optString("status"))
+                JSONObject response = requestCommand(base, sender, target, action, params);
+                if (chooseApps && "completed".equals(response.optString("status"))) {
+                    JSONObject result = response.getJSONObject("result");
+                    runOnUiThread(() -> {
+                        if (isDestroyed()) return;
+                        if (!base.equals(Config.server(this)) || !sender.equals(Config.own(this)) || !target.equals(Config.peer(this))) {
+                            ui.clearAppPicker(); ui.message("应用选择器", "连接设置已更改，请重新获取应用列表"); return;
+                        }
+                        ui.showAppPicker(result, base, sender, target, getPackageName());
+                    });
+                } else if ("completed".equals(response.optString("status"))
                     && ("get_recent_apps".equals(action) || "get_installed_apps".equals(action)
                         || "get_notifications".equals(action) || "get_media".equals(action) || "get_status".equals(action))) {
                     JSONObject result = response.getJSONObject("result");
