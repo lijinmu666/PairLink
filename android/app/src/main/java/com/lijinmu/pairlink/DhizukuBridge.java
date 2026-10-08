@@ -1,5 +1,6 @@
 package com.lijinmu.pairlink;
 
+import android.annotation.SuppressLint;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -26,6 +27,8 @@ final class DhizukuBridge {
         if (!available(c)) throw new Exception("请先安装、激活并启动 Dhizuku");
         Dhizuku.requestPermission(listener);
     }
+    // Dhizuku needs the policy Binder; the narrow exemptions below are applied before reflection.
+    @SuppressLint("SoonBlockedPrivateApi")
     private static DevicePolicyManager manager(Context c, ComponentName owner) throws Exception {
         if (Build.VERSION.SDK_INT >= 28) {
             if (!HiddenApiBypass.addHiddenApiExemptions("Landroid/app/admin/DevicePolicyManager;", "Landroid/app/admin/IDevicePolicyManager"))
