@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -45,9 +46,11 @@ class UiState {
     var script by mutableStateOf("")
     var targetPackage by mutableStateOf("")
     var shizuku by mutableStateOf(false)
+    var dhizuku by mutableStateOf(false)
+    var nightMode by mutableStateOf("system")
     var sendShizuku by mutableStateOf(false)
     var appControl by mutableStateOf(false)
-    var appControlMode by mutableStateOf("device_owner")
+    var appControlMode by mutableStateOf("dhizuku")
     var privilegeStatus by mutableStateOf("")
     var privilegeMode by mutableStateOf("无特权")
     var statusNotification by mutableStateOf(true)
@@ -115,7 +118,18 @@ object PairLinkUi {
     @JvmStatic fun render(activity: MainActivity, ui: UiState) {
         activity.enableEdgeToEdge()
         activity.setContent {
-            val dark = isSystemInDarkTheme()
+            val systemDark = isSystemInDarkTheme()
+            val dark = when (ui.nightMode) {
+                "on" -> true
+                "off" -> false
+                else -> systemDark
+            }
+            SideEffect {
+                activity.enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark },
+                    navigationBarStyle = SystemBarStyle.auto(0xE6FFFFFF.toInt(), 0x801B1B1B.toInt()) { dark },
+                )
+            }
             MiuixTheme(colors = if (dark) darkColorScheme() else lightColorScheme()) {
                 Screen(activity, ui)
             }
@@ -266,6 +280,13 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     3 -> {
                         item {
                             Section("客户端偏好") {
+                                val modes = listOf("system", "on", "off")
+                                OverlayDropdownPreference(
+                                    title = "夜间模式",
+                                    items = listOf("系统", "开启", "关闭"),
+                                    selectedIndex = modes.indexOf(ui.nightMode).coerceAtLeast(0),
+                                    onSelectedIndexChange = { index -> activity.selectNightMode(modes[index]) },
+                                )
                                 SwitchPreference(title = "后台状态通知", summary = "在系统设置中开关共享连接通知，返回后自动同步；关闭通知不停止共享", checked = ui.statusNotification, onCheckedChange = activity::changeStatusNotification)
                             }
                         }
@@ -287,6 +308,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                             Section("执行和通知授权") {
                                 SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
                                 SwitchPreference(title = "允许使用 Shizuku / Sui", summary = "本机确认并授权后，用于 Shell 和应用暂停", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
+                                SwitchPreference(title = "允许使用 Dhizuku", summary = "本机确认并授权后，仅用于应用暂停和恢复", checked = ui.dhizuku, onCheckedChange = activity::changeDhizuku)
                                 SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
                                 SwitchPreference(title = "允许对方发送普通通知", summary = "接收方确认后才允许发送", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
                                 SwitchPreference(title = "允许对方查看通知", summary = if (ui.notificationAccess) "仅在查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
@@ -307,17 +329,16 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 Section("本机应用暂停授权") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(ui.privilegeStatus)
-                        val modes = listOf("device_owner", "shizuku", "root")
+                        val modes = listOf("dhizuku", "shizuku", "root")
                         OverlayDropdownPreference(
                             title = "应用暂停执行方式",
                             summary = "本机接受暂停请求时使用",
-                            items = listOf("设备所有者", "Shizuku / Sui", "root"),
+                            items = listOf("Dhizuku", "Shizuku / Sui", "root"),
                             selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
                             onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
                         )
-                        Action("查看设备所有者激活说明", activity::ownerInstructions, primary = false)
                     }
-                    SwitchPreference(title = "允许对方暂停和恢复应用", summary = "默认关闭，执行方式由本机选择", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
+                    SwitchPreference(title = "允许对方暂停和恢复应用", summary = "默认关闭；不能暂停 PairLink 本身和系统应用", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
                 }
             }
             item {

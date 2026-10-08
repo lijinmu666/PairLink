@@ -1,9 +1,8 @@
 package com.lijinmu.pairlink;
 
-import android.app.admin.DevicePolicyManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.os.Process;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -18,14 +17,14 @@ final class AppControl {
     private static final String TRACK = "paused_backend.";
     static final Pattern PACKAGE = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+");
     private static final Pattern STATE = Pattern.compile("new suspended state:\\s*(true|false)");
-    static boolean isOwner(Context c) {
-        DevicePolicyManager policy = c.getSystemService(DevicePolicyManager.class);
-        return policy != null && policy.isDeviceOwnerApp(c.getPackageName());
+    static String mode(Context c) {
+        String mode = Config.prefs(c).getString("app_control_mode", "dhizuku");
+        return "shizuku".equals(mode) || "root".equals(mode) ? mode : "dhizuku";
     }
-    static String mode(Context c) { return Config.prefs(c).getString("app_control_mode", "device_owner"); }
     static String label(String mode) {
         switch (mode) {
-            case "device_owner": return "设备所有者";
+            case "dhizuku": return "Dhizuku";
+            case "device_owner": return "旧版设备所有者（已移除）";
             case "shizuku": return "Shizuku / Sui";
             case "root": return "root";
             default: return "未知";
@@ -45,12 +44,17 @@ final class AppControl {
     static JSONObject set(Context c, String pkg, boolean suspended, boolean local, ShellRunner runner) throws Exception {
         if (pkg == null || pkg.length() > 255 || !PACKAGE.matcher(pkg).matches()) throw new Exception("应用包名无效");
         if (suspended && c.getPackageName().equals(pkg)) throw new Exception("不能暂停 PairLink 本身");
+        ApplicationInfo app = c.getPackageManager().getApplicationInfo(pkg, 0);
+        if (suspended && (app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0)
+            throw new Exception("不能暂停系统应用");
         SharedPreferences prefs = Config.prefs(c);
         String backend = backend(c, pkg, suspended);
+        if ("device_owner".equals(backend))
+            throw new Exception("这是旧版设备所有者暂停记录，请使用旧版 PairLink 恢复后再迁移到 Dhizuku");
         BooleanSupplier allowed = () -> {
             if (!local && (!Config.sharing(c) || !prefs.getBoolean("app_control", false))) return false;
             switch (backend) {
-                case "device_owner": return isOwner(c);
+                case "dhizuku": return DhizukuBridge.granted(c) && (local || prefs.getBoolean("dhizuku", false));
                 case "shizuku": return ShizukuBridge.granted() && (local || prefs.getBoolean("shizuku", false));
                 case "root": return local || Config.root(c);
                 default: return false;
@@ -63,15 +67,9 @@ final class AppControl {
         if ("shizuku".equals(backend) && prefs.contains("paused_uid." + pkg)
             && prefs.getInt("paused_uid." + pkg, -1) != ShizukuBridge.uid())
             throw new Exception("Shizuku / Sui 的启动身份已改变，请恢复原启动身份后再恢复应用");
-        c.getPackageManager().getApplicationInfo(pkg, 0);
         boolean actual;
-        if ("device_owner".equals(backend)) {
-            DevicePolicyManager policy = c.getSystemService(DevicePolicyManager.class);
-            ComponentName admin = new ComponentName(c, PairLinkAdminReceiver.class);
-            if (!allowed.getAsBoolean()) throw new Exception("应用暂停授权已关闭");
-            String[] failed = policy.setPackagesSuspended(admin, new String[]{pkg}, suspended);
-            if (failed.length != 0) throw new Exception("系统拒绝修改此应用的暂停状态：" + pkg);
-            actual = policy.isPackageSuspended(admin, pkg);
+        if ("dhizuku".equals(backend)) {
+            actual = DhizukuBridge.setSuspended(c, pkg, suspended, allowed);
         } else {
             int user = Process.myUid() / 100000;
             String command = "pm " + (suspended ? "suspend" : "unsuspend") + " --user " + user + " " + pkg;
@@ -84,8 +82,8 @@ final class AppControl {
             Matcher state = STATE.matcher(result.stdout);
             if (!state.find()) throw new Exception("系统未返回可确认的暂停状态，请检查应用后再操作。\n" + result.stdout + "\n" + result.stderr);
             actual = Boolean.parseBoolean(state.group(1));
-            if (suspended && !actual) throw new Exception("系统拒绝暂停此应用：" + pkg);
         }
+        if (suspended && !actual) throw new Exception("系统拒绝暂停此应用：" + pkg);
         if (suspended && actual) {
             SharedPreferences.Editor edit = prefs.edit().putString(TRACK + pkg, backend);
             if ("shizuku".equals(backend)) edit.putInt("paused_uid." + pkg, ShizukuBridge.uid());

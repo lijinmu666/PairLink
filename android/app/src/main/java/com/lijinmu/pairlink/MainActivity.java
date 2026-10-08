@@ -11,12 +11,27 @@ import android.content.SharedPreferences;
 import org.json.*;
 import java.util.concurrent.*;
 import rikka.shizuku.Shizuku;
+import com.rosan.dhizuku.api.DhizukuRequestPermissionListener;
 
 public final class MainActivity extends ComponentActivity {
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final UiState ui = new UiState();
     private volatile boolean busy;
     private boolean awaitingShizuku;
+    private boolean awaitingDhizuku;
+    private final DhizukuRequestPermissionListener dhizukuPermissionResult = new DhizukuRequestPermissionListener() {
+        @Override public void onRequestPermission(int result) {
+            runOnUiThread(() -> {
+                if (isDestroyed() || !awaitingDhizuku) return;
+                boolean granted = result == PackageManager.PERMISSION_GRANTED && DhizukuBridge.granted(MainActivity.this);
+                if (granted)
+                    Config.prefs(MainActivity.this).edit().putBoolean("dhizuku", true).putString("app_control_mode", "dhizuku").apply();
+                awaitingDhizuku = false;
+                refreshState(); policy();
+                toast(granted ? "Dhizuku 已授权" : "Dhizuku 未授权或服务已停止");
+            });
+        }
+    };
     private int versionTapCount;
     private long lastVersionTap;
     private final Shizuku.OnRequestPermissionResultListener shizukuPermissionResult = (code, result) -> {
@@ -65,21 +80,24 @@ public final class MainActivity extends ComponentActivity {
         ui.setStatusNotification(nm.areNotificationsEnabled() && (channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE));
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
         ui.setNotificationAccess(NotificationReaderService.hasAccess(this));
-        ui.setPrivilegeStatus(ShizukuBridge.status() + "\n设备所有者：" + (AppControl.isOwner(this) ? "已激活" : "未激活"));
-        boolean owner = AppControl.isOwner(this);
+        boolean dhizukuGranted = DhizukuBridge.granted(this);
+        boolean dhizuku = Config.prefs(this).getBoolean("dhizuku", false) && dhizukuGranted;
+        ui.setPrivilegeStatus(ShizukuBridge.status() + "\nDhizuku：" + (dhizukuGranted ? (dhizuku ? "已授权并开启" : "已授权，未开启") : "未授权或未运行"));
         boolean shizuku = Config.prefs(this).getBoolean("shizuku", false) && ShizukuBridge.granted();
         boolean root = Config.prefs(this).getBoolean("root", false);
         String mode = AppControl.mode(this);
         if ("shizuku".equals(mode) && shizuku) ui.setPrivilegeMode("Shizuku");
         else if ("root".equals(mode) && root) ui.setPrivilegeMode("root");
-        else if ("device_owner".equals(mode) && owner) ui.setPrivilegeMode("设备所有者");
+        else if ("dhizuku".equals(mode) && dhizuku) ui.setPrivilegeMode("Dhizuku");
         else if (root) ui.setPrivilegeMode("root");
         else if (shizuku) ui.setPrivilegeMode("Shizuku");
-        else if (owner) ui.setPrivilegeMode("设备所有者");
+        else if (dhizuku) ui.setPrivilegeMode("Dhizuku");
         else ui.setPrivilegeMode("无特权");
     }
     private void refreshState() {
         refreshAccessPermissions();
+        ui.setNightMode(Config.nightMode(this));
+        ui.setDhizuku(Config.prefs(this).getBoolean("dhizuku", false));
         ui.setSharing(Config.sharing(this));
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setRoot(Config.prefs(this).getBoolean("root", false));
@@ -144,18 +162,44 @@ public final class MainActivity extends ComponentActivity {
             } catch (RuntimeException e) { awaitingShizuku = false; toast("Shizuku / Sui 授权请求失败"); }
         });
     }
+    public void selectNightMode(String mode) {
+        if (!"system".equals(mode) && !"on".equals(mode) && !"off".equals(mode)) return;
+        Config.prefs(this).edit().putString("night_mode", mode).apply();
+        refreshState();
+    }
+    public void changeDhizuku(boolean checked) {
+        if (!checked) {
+            awaitingDhizuku = false;
+            Config.prefs(this).edit().putBoolean("dhizuku", false).apply();
+            refreshState(); policy(); return;
+        }
+        ui.confirm("授权 Dhizuku", "允许 PairLink 通过 Dhizuku 暂停和恢复应用，不用于 Shell。请先在 Dhizuku 中完成激活，再单独授予 PairLink 权限。", "授权", () -> {
+            if (!DhizukuBridge.available(this)) { toast("请先安装、激活并启动 Dhizuku"); return; }
+            if (DhizukuBridge.granted(this)) {
+                Config.prefs(this).edit().putBoolean("dhizuku", true).putString("app_control_mode", "dhizuku").apply();
+                refreshState(); policy(); return;
+            }
+            if (awaitingDhizuku) { toast("请先完成 Dhizuku 授权"); return; }
+            try {
+                awaitingDhizuku = true;
+                DhizukuBridge.request(this, dhizukuPermissionResult);
+            } catch (Exception e) {
+                awaitingDhizuku = false;
+                show("Dhizuku 授权请求失败：" + e.getMessage());
+            }
+        });
+    }
     public void selectAppControlMode(String mode) {
-        if (!mode.equals("device_owner") && !mode.equals("shizuku") && !mode.equals("root")) return;
-        if (mode.equals("device_owner") && !AppControl.isOwner(this)) { ownerInstructions(); return; }
+        if (!mode.equals("dhizuku") && !mode.equals("shizuku") && !mode.equals("root")) return;
+        if (mode.equals("dhizuku") && (!DhizukuBridge.granted(this) || !Config.prefs(this).getBoolean("dhizuku", false))) {
+            changeDhizuku(true); return;
+        }
         if (mode.equals("shizuku") && (!ShizukuBridge.granted() || !Config.prefs(this).getBoolean("shizuku", false))) {
             toast("请先开启并授权 Shizuku / Sui"); return;
         }
         if (mode.equals("root") && !Config.prefs(this).getBoolean("root", false)) { toast("请先开启 Shell 并单独授权 root"); return; }
         Config.prefs(this).edit().putString("app_control_mode", mode).apply();
         refreshState(); policy();
-    }
-    public void ownerInstructions() {
-        ui.message("设备所有者", "只有 PairLink 自身成为设备所有者才能使用此模式，普通设备管理员权限不够。\n\n可在满足系统设备所有者配置条件时，通过 ADB 执行：\n\nadb shell dpm set-device-owner com.lijinmu.pairlink/.PairLinkAdminReceiver\n\n已存在其他设备所有者或账号等情况下，系统可能拒绝。应用不会自动激活设备所有者。");
     }
     public void changeAppControl(boolean checked) {
         if (!checked) {

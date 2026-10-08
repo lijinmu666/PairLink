@@ -2,7 +2,7 @@
 
 供双方主动安装、授权和开启共享的 Android 手机指令项目。一个仓库包含 `android/` 客户端、`railway/` Railway 服务端和保留的 `worker/` Cloudflare 服务端，两个后端沿用相同客户端接口。
 
-Android 0.2.0 将界面迁移为 Compose + Miuix 0.9.3：默认蓝色主题、系统深浅色、按钮、输入框、开关、卡片、进度条及弹窗。已设置白底小猫应用图标，结果页面提供箭头返回；前台服务保留系统要求的通知小图标。新增的通知查询、应用暂停及 Shizuku Shell 需要重新部署仓库中的 Worker。
+Android 0.2.0 将界面迁移为 Compose + Miuix 0.9.3：默认蓝色主题、夜间模式（系统 / 开启 / 关闭）、按钮、输入框、开关、卡片、进度条及弹窗。已设置白底小猫应用图标，结果页面提供箭头返回；前台服务保留系统要求的通知小图标。当前以 Railway 为主服务端，Cloudflare Worker 保留现状作为备用。Dhizuku 和夜间模式改动仅在客户端，不需要修改服务端接口。
 
 ## 第一版
 
@@ -14,8 +14,9 @@ Android 0.2.0 将界面迁移为 Compose + Miuix 0.9.3：默认蓝色主题、�
 - 查看对方通知中心当前的通知：应用名、包名、标题、正文和通知时间。通知共享默认关闭，需要接收方单独开启并授予系统通知访问权限。
 - 向对方发送普通系统通知；接收方单独开启发送授权。
 - 单次远程 Shell：普通应用、root 或 Shizuku/Sui 执行；标准输出、错误输出、退出码、超时和截断标记。
-- 暂停和恢复指定包名的应用：被操作手机选择设备所有者、Shizuku/Sui 或 root，独立授权开关默认关闭；提供本机恢复入口。
+- 暂停和恢复指定包名的应用：被操作手机选择 Dhizuku、Shizuku/Sui 或 root，独立授权开关默认关闭；提供本机恢复入口。
 - 本机主动开启 Shell；root 必须单独请求本机 root 管理器授权。关闭 Shell 同时关闭 root。
+- 夜间模式菜单：系统、开启、关闭；默认跟随系统，选择会保存在本机并立即应用。
 - 前台通知、暂停共享、WebSocket 心跳与断线重连；使用系统 DNS。
 - 请求结果保留 24 小时后自动清理。第一版没有 MCP、OAuth、API Key 或账号。
 
@@ -81,7 +82,7 @@ cd android
 
 ## 查看媒体播放
 
-双方更新 APK，并更新正在使用的 Railway 服务端或重新部署 Cloudflare Worker。接收方在设置页开启“允许对方查看媒体播放”，授予通知访问权限；不需要开启通知内容共享，也不需要 root、Shizuku 或设备所有者。查询方在“查询”页点击“查看媒体播放”，加载时显示进度弹窗，完成后进入卡片结果页。
+双方更新 APK，并更新正在使用的 Railway 服务端或重新部署 Cloudflare Worker。接收方在设置页开启“允许对方查看媒体播放”，授予通知访问权限；不需要开启通知内容共享，也不需要 root、Shizuku 或 Dhizuku。查询方在“查询”页点击“查看媒体播放”，加载时显示进度弹窗，完成后进入卡片结果页。
 
 读取 Android 系统当前活跃媒体会话，通常对应控制中心媒体面板，包含音频，也可能包含视频；无法保证每个应用的控制中心卡片都能被读取。显示应用名、包名、曲目、作者、专辑、状态、进度和时长，正在播放的会话优先。进度是查询时快照，部分播放进度根据应用提供的更新时间估算；直播或应用未提供的时长显示未知。没有会话时明确提示，不会录音、上传音频或控制播放。单次最多 20 个会话，文字有长度上限，结果沿用 24 小时清理规则。关闭媒体共享或撤销通知访问后拒绝新的查询。
 
@@ -91,29 +92,25 @@ cd android
 
 发送普通通知需要发送方填写标题和内容，被操作手机开启发送授权并授予系统通知权限。通知使用普通重要性，不提供静默或紧急类型。系统关闭通知或权限不足时，请求会失败。
 
-## Shizuku、Sui 与设备所有者
+## Shizuku、Sui 与 Dhizuku
 
 Shizuku/Sui 集成采用官方 API 13.1.5 的 Provider、权限申请和 UserService。安装并启动 Shizuku，或安装并启用 Sui 后，在 PairLink 中开启“允许使用 Shizuku / Sui”，确认并授予权限。状态显示实际 UID：ADB 启动通常为 2000，root/Sui 为 0。Shizuku 服务未启动、权限撤销或本机开关关闭时会拒绝执行，不会自动改用 root。Shell 仍须单独开启“允许对方执行 Shell”，发送方可选择本次使用 Shizuku/Sui，与 root 请求互斥。
 
-设备所有者模式只用于应用暂停接口，不提供任意 Shell。PairLink 自身必须是设备所有者；普通设备管理员或其他应用拥有设备所有者身份并不满足条件。应用提供说明，不能通过普通权限弹窗直接获得此身份。满足系统配置条件时可通过 ADB 设置：
+Dhizuku 集成采用官方 API 2.6.0，用于应用暂停和恢复，不用于任意 Shell。请先按 Dhizuku 官方说明激活并启动 Dhizuku，再在 PairLink 设置中开启“允许使用 Dhizuku”并确认授权，在应用暂停执行方式菜单选择 Dhizuku。Dhizuku 未运行、授权撤销或本机开关关闭时拒绝远程操作，不会自动切换其他执行方式。
 
-```bash
-adb shell dpm set-device-owner com.lijinmu.pairlink/.PairLinkAdminReceiver
-```
-
-设备已有账号或其他设备所有者等情况下系统可能拒绝，请按系统实际返回处理；应用不会自动执行此命令。
+PairLink 自身的设备所有者模式、管理员接收器和激活入口已移除。旧版设备所有者执行方式默认切换为 Dhizuku，但不会自动授予 Dhizuku 权限。若旧版 PairLink 曾被设为设备所有者，请在更新前使用旧版恢复所有暂停应用，并解除旧版设备所有者后再激活 Dhizuku。旧暂停记录保留并显示迁移提示，不能冒充新的 Dhizuku 暂停来源。
 
 ## 暂停与恢复应用
 
-1. 被操作手机在“应用暂停与恢复”中选择执行方式。设备所有者必须已激活；Shizuku/Sui 必须运行、授权并开启本机开关；root 需要已开启 Shell 并单独授权 root。
+1. 被操作手机在“应用暂停与恢复”中选择执行方式。Dhizuku 必须已激活、启动、授权并开启本机开关；Shizuku/Sui 必须运行、授权并开启本机开关；root 需要已开启 Shell 并单独授权 root。
 2. 被操作手机主动开启“允许对方暂停和恢复应用”，双方共享在线。
 3. 发送方填写目标应用包名，点击“暂停对方应用”或“恢复对方应用”，确认后执行；结果仍在 Miuix 弹窗中显示，等待时保留无限进度条。
-4. 暂停使用设备所有者的 `setPackagesSuspended` 或当前用户的 `pm suspend`，恢复使用对应接口或 `pm unsuspend`。返回实际暂停状态；系统拒绝、命令失败和未确认状态都会明确提示。
-5. 本机保存暂停尝试的包名、执行方式和 Shizuku 身份，以便请求超时或结果丢失时仍可恢复。恢复优先使用记录中的原执行方式；执行身份改变时应先恢复原身份，避免跨暂停来源误报成功。
-6. “恢复本机由 PairLink 暂停的应用”不依赖服务器在线或共享开关，可恢复本机记录的暂停/可能已执行请求。此操作仍需要原来的系统权限或特权服务可用。恢复后若仍有其他暂停来源，结果会提示仍处于暂停状态。
-7. 关闭暂停授权、关闭共享或切换方式不会自动撤销已发生的暂停。桌面、设备管理员等系统保护应用可能无法暂停；禁止暂停 PairLink 本身，以保留恢复入口。
+4. 暂停使用 Dhizuku 代理的 `setPackagesSuspended` 或当前用户的 `pm suspend`，恢复使用对应接口或 `pm unsuspend`。返回实际暂停状态；系统拒绝、命令失败和未确认状态都会明确提示。
+5. 本机保存已确认暂停的包名、执行方式和 Shizuku 身份，以便执行结果回传丢失时仍可恢复；无法确认的执行状态不会记录为成功。恢复优先使用记录中的原执行方式；执行身份改变时应先恢复原身份，避免跨暂停来源误报成功。
+6. “恢复本机由 PairLink 暂停的应用”不依赖服务器在线或共享开关，可恢复本机记录的暂停应用。此操作仍需要原来的系统权限或特权服务可用。恢复后若仍有其他暂停来源，结果会提示仍处于暂停状态。
+7. 关闭暂停授权、关闭共享或切换方式不会自动撤销已发生的暂停。接收端对所有执行方式禁止暂停 PairLink 本身、预装系统应用及更新后的系统应用；此限制不妨碍恢复操作。其他系统保护应用也可能被安卓拒绝。
 
-官方参考：[Shizuku API](https://github.com/RikkaApps/Shizuku-API)、[设备所有者应用暂停接口](https://developer.android.com/reference/android/app/admin/DevicePolicyManager#setPackagesSuspended(android.content.ComponentName,%20java.lang.String[],%20boolean))。
+官方参考：[Shizuku API](https://github.com/RikkaApps/Shizuku-API)、[Dhizuku API](https://github.com/iamr0s/Dhizuku-API)、[应用暂停接口](https://developer.android.com/reference/android/app/admin/DevicePolicyManager#setPackagesSuspended(android.content.ComponentName,%20java.lang.String[],%20boolean))。
 
 ## 连接与权限边界
 
