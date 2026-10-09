@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import org.json.JSONObject
@@ -80,7 +81,7 @@ class UiState {
             val item = array.optJSONObject(index) ?: return@mapNotNull null
             val pkg = item.optString("package_name")
             if (pkg.length > 255 || !AppControl.PACKAGE.matcher(pkg).matches()) return@mapNotNull null
-            PeerApp(pkg, item.optString("app_name").ifBlank { pkg }, pkg == protectedPackage)
+            PeerApp(pkg, displayAppName(item.optString("app_name"), pkg), pkg == protectedPackage)
         }.distinctBy { it.packageName }.sortedWith(compareBy<PeerApp> { it.name.lowercase(Locale.ROOT) }.thenBy { it.packageName })
         val old = appPicker
         val sameDevice = old != null && old.server == server && old.sender == sender && old.device == device
@@ -103,7 +104,7 @@ class UiState {
             val item = array.optJSONObject(index) ?: return@mapNotNull null
             val pkg = item.optString("package_name")
             if (pkg.length > 255 || !AppControl.PACKAGE.matcher(pkg).matches()) return@mapNotNull null
-            PeerApp(pkg, item.optString("app_name").ifBlank { pkg }, pkg == protectedPackage, item.optBoolean("installed", true))
+            PeerApp(pkg, displayAppName(item.optString("app_name"), pkg), pkg == protectedPackage, item.optBoolean("installed", true))
         }.distinctBy { it.packageName }.sortedWith(compareBy<PeerApp> { it.name.lowercase(Locale.ROOT) }.thenBy { it.packageName })
         val refreshing = appPicker?.blacklist == true
         appPicker = AppPickerPage("", "", device, apps, false, blacklist = true)
@@ -362,7 +363,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     selectedIndex = modes.indexOf(ui.nightMode).coerceAtLeast(0),
                                     onSelectedIndexChange = { index -> activity.selectNightMode(modes[index]) },
                                 )
-                                SwitchPreference(title = "后台状态通知", summary = "在系统设置中开关共享连接通知，返回后自动同步；关闭通知不停止共享", checked = ui.statusNotification, onCheckedChange = activity::changeStatusNotification)
+                                SwitchPreference(title = "后台状态通知", summary = "直接开关静默连接通知；关闭后仍尝试保持连接，但失去前台保活，更容易被系统回收", checked = ui.statusNotification, onCheckedChange = activity::changeStatusNotification)
                             }
                         }
                         item {
@@ -458,7 +459,8 @@ private fun UiDialogs(ui: UiState) {
                 key(dialog) {
                     SelectionContainer {
                         Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                            Text(dialog.body, fontFamily = if (dialog.isResult) FontFamily.Monospace else null)
+                            Text(dialog.body, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                fontFamily = if (dialog.isResult) FontFamily.Monospace else null)
                         }
                     }
                 }
@@ -516,8 +518,11 @@ data class ResultPage(
     val emptyMessage: String = "暂无结果",
 )
 
+private fun displayAppName(name: String, packageName: String): String =
+    name.trim().takeUnless { it.isEmpty() || it == packageName.trim() } ?: "棍母"
+
 private fun appName(item: JSONObject): String =
-    item.optString("app_name").ifBlank { item.optString("package_name").ifBlank { "未知应用" } }
+    displayAppName(item.optString("app_name"), item.optString("package_name"))
 
 private fun timestamp(item: JSONObject, key: String): String {
     if (!item.has(key) || item.isNull(key) || item.optLong(key) <= 0) return "未知"
@@ -798,3 +803,4 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         UiDialogs(ui)
     }
 }
+

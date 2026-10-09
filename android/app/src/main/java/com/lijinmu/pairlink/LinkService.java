@@ -11,7 +11,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class LinkService extends Service {
-    static final String STOP = "stop", POLICY = "policy";
+    static final String STOP = "stop", POLICY = "policy", NOTIFICATION = "notification";
+    private static final String FOREGROUND_START = "foreground_start";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService tasks = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean();
@@ -20,6 +21,7 @@ public final class LinkService extends Service {
     private WebSocket socket;
     private int generation;
     private boolean destroyed;
+    private boolean foreground;
     private volatile long lastPong;
     private volatile boolean executingRoot;
     private volatile boolean executingShizuku;
@@ -28,17 +30,21 @@ public final class LinkService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        startForeground(100, notification("正在连接"));
         seen.addAll(Config.prefs(this).getStringSet("seen", Collections.emptySet()));
         base = Config.server(this);
         connect();
         handler.postDelayed(heartbeat, 25000);
     }
     @Override public int onStartCommand(Intent intent, int flags, int id) {
+        if (intent != null && intent.getBooleanExtra(FOREGROUND_START, false)) {
+            startForeground(100, notification(Config.prefs(this).getString("connection", "正在连接")));
+            foreground = true;
+        }
         if (intent != null && STOP.equals(intent.getAction())) {
             Config.prefs(this).edit().putBoolean("sharing", false).apply();
         }
         if (!Config.sharing(this)) { runner.cancel(); ShizukuBridge.cancel(); stopSelf(); return START_NOT_STICKY; }
+        updateStatusNotification(Config.prefs(this).getString("connection", "正在连接"));
         if (intent != null && POLICY.equals(intent.getAction())) {
             boolean denied = executingAppControl ? !Config.prefs(this).getBoolean("app_control", false) : !Config.shell(this);
             if (denied || (executingRoot && !Config.root(this)) || (executingShizuku && !Config.shizuku(this))) {
@@ -46,6 +52,23 @@ public final class LinkService extends Service {
             }
         }
         return START_STICKY;
+    }
+    static void start(Context c, String action) {
+        boolean show = Config.statusNotification(c);
+        Intent intent = new Intent(c, LinkService.class).setAction(action).putExtra(FOREGROUND_START, show);
+        if (show) c.startForegroundService(intent); else c.startService(intent);
+    }
+    private void updateStatusNotification(String text) {
+        if (Config.statusNotification(this)) {
+            if (!foreground) {
+                startForeground(100, notification(text));
+                foreground = true;
+            } else getSystemService(NotificationManager.class).notify(100, notification(text));
+        } else {
+            if (foreground) stopForeground(STOP_FOREGROUND_REMOVE);
+            foreground = false;
+            getSystemService(NotificationManager.class).cancel(100);
+        }
     }
     static void createConnectionChannel(Context c) {
         NotificationChannel channel = new NotificationChannel("connection", "共享连接", NotificationManager.IMPORTANCE_LOW);
@@ -64,7 +87,7 @@ public final class LinkService extends Service {
     }
     private void state(String text) {
         Config.prefs(this).edit().putString("connection", text).apply();
-        getSystemService(NotificationManager.class).notify(100, notification(text));
+        updateStatusNotification(text);
     }
     private void connect() {
         if (destroyed || !Config.sharing(this) || socket != null || !base.startsWith("https://")) return;
@@ -199,3 +222,4 @@ public final class LinkService extends Service {
     }
     @Override public IBinder onBind(Intent intent) { return null; }
 }
+

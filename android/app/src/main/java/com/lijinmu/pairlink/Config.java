@@ -20,6 +20,7 @@ final class Config {
     static String peer(Context c) { return prefs(c).getString("peer", ""); }
     static String server(Context c) { return prefs(c).getString("server", ""); }
     static boolean sharing(Context c) { return prefs(c).getBoolean("sharing", false); }
+    static boolean statusNotification(Context c) { return prefs(c).getBoolean("status_notification", true); }
     static Set<String> pauseBlacklist(Context c) {
         return new HashSet<>(prefs(c).getStringSet("pause_blacklist", Collections.emptySet()));
     }
@@ -46,3 +47,4 @@ final class Config {
         prefs(c).edit().putString("logs", next.substring(0, Math.min(12000, next.length()))).apply();
     }
 }
+

@@ -78,9 +78,7 @@ public final class MainActivity extends ComponentActivity {
         }
     }
     private void refreshAccessPermissions() {
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        NotificationChannel channel = nm.getNotificationChannel("connection");
-        ui.setStatusNotification(nm.areNotificationsEnabled() && (channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE));
+        ui.setStatusNotification(Config.statusNotification(this));
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
         ui.setNotificationAccess(NotificationReaderService.hasAccess(this));
         boolean dhizukuGranted = DhizukuBridge.granted(this);
@@ -114,24 +112,21 @@ public final class MainActivity extends ComponentActivity {
         ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
     }
     public void changeStatusNotification(boolean checked) {
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        LinkService.createConnectionChannel(this);
-        Intent settings = nm.areNotificationsEnabled()
-            ? new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
-                .putExtra(Settings.EXTRA_CHANNEL_ID, "connection")
-            : new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-        try { startActivity(settings); }
-        catch (ActivityNotFoundException e) { toast("请在系统设置中的 PairLink 通知设置里开关共享连接通知"); }
+        Config.prefs(this).edit().putBoolean("status_notification", checked).apply();
+        refreshState();
+        if (checked) requestNotificationPermission();
+        if (Config.sharing(this)) LinkService.start(this, LinkService.NOTIFICATION);
+        else if (!checked) getSystemService(NotificationManager.class).cancel(100);
+    }
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
     }
     public void changeSharing(boolean checked) {
         if (checked && !settingsValid()) { toast("请先保存有效的连接设置"); return; }
-        if (checked && Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
-        }
+        if (checked && Config.statusNotification(this)) requestNotificationPermission();
         Config.prefs(this).edit().putBoolean("sharing", checked).apply();
-        if (checked) startForegroundService(new Intent(this, LinkService.class));
+        if (checked) LinkService.start(this, null);
         else stopService(new Intent(this, LinkService.class));
         refreshState();
     }
@@ -440,7 +435,7 @@ public final class MainActivity extends ComponentActivity {
         });
     }
     private void policy() {
-        if (Config.sharing(this)) startService(new Intent(this, LinkService.class).setAction(LinkService.POLICY));
+        if (Config.sharing(this)) LinkService.start(this, LinkService.POLICY);
     }
     private boolean settingsValid() {
         try {
@@ -546,3 +541,4 @@ public final class MainActivity extends ComponentActivity {
         network.shutdown(); super.onDestroy();
     }
 }
+
