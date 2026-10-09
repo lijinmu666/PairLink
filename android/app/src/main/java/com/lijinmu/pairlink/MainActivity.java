@@ -24,16 +24,19 @@ public final class MainActivity extends ComponentActivity {
     private boolean awaitingShizukuMode;
     private boolean awaitingDhizuku;
     private volatile int modeRequestGeneration;
+    private String pendingPermission;
+    private boolean permissionSettingsOpened;
+    private boolean pendingAppControl;
     private final DhizukuRequestPermissionListener dhizukuPermissionResult = new DhizukuRequestPermissionListener() {
         @Override public void onRequestPermission(int result) {
             runOnUiThread(() -> {
                 if (isDestroyed() || !awaitingDhizuku) return;
                 boolean granted = result == PackageManager.PERMISSION_GRANTED && DhizukuBridge.granted(MainActivity.this);
                 if (granted)
-                    Config.prefs(MainActivity.this).edit().putBoolean("dhizuku", true).putString("app_control_mode", "dhizuku").apply();
+                    finishPrivilegeMode("dhizuku");
                 awaitingDhizuku = false;
                 refreshState(); policy();
-                toast(granted ? "Dhizuku 已授权" : "Dhizuku 未授权或服务已停止");
+                if (!granted) { pendingAppControl = false; ui.message("Dhizuku 授权失败", "权限未授予或服务已停止，请在 Dhizuku 中完成激活、启动并允许 PairLink。"); }
             });
         }
     };
@@ -47,11 +50,11 @@ public final class MainActivity extends ComponentActivity {
             if (awaitingShizuku && granted)
                 Config.prefs(this).edit().putBoolean("shizuku", true).apply();
             if (awaitingShizukuMode && granted)
-                Config.prefs(this).edit().putString("app_control_mode", "shizuku").apply();
+                finishPrivilegeMode("shizuku");
             awaitingShizuku = false;
             awaitingShizukuMode = false;
             refreshState(); policy();
-            toast(granted ? "Shizuku / Sui 已授权" : "Shizuku / Sui 未授权或服务已停止");
+            if (!granted) { pendingAppControl = false; ui.message("Shizuku / Sui 授权失败", "权限未授予或服务已停止，请在 Shizuku / Sui 管理器中允许 PairLink。"); }
         });
     };
     private final Handler permissionHandler = new Handler(Looper.getMainLooper());
@@ -64,6 +67,7 @@ public final class MainActivity extends ComponentActivity {
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (prefs, key) -> runOnUiThread(this::refreshState);
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
+        if (b != null) { pendingPermission = b.getString("pending_permission"); permissionSettingsOpened = pendingPermission != null; }
         Shizuku.addRequestPermissionResultListener(shizukuPermissionResult);
         ui.setServer(Config.server(this)); ui.setOwn(Config.own(this)); ui.setPeer(Config.peer(this));
         refreshState();
@@ -113,19 +117,73 @@ public final class MainActivity extends ComponentActivity {
         ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
     }
     public void changeStatusNotification(boolean checked) {
+        if (checked && !ensureNotificationPermission("status_notification", "connection")) return;
         Config.prefs(this).edit().putBoolean("status_notification", checked).apply();
         refreshState();
-        if (checked) requestNotificationPermission();
         if (Config.sharing(this)) LinkService.start(this, LinkService.NOTIFICATION);
         else if (!checked) getSystemService(NotificationManager.class).cancel(100);
     }
-    private void requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
+    private boolean notificationAllowed(String channelId) {
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null || !manager.areNotificationsEnabled()) return false;
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) return false;
+        NotificationChannel channel = manager.getNotificationChannel(channelId);
+        return channel != null && channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
+    }
+    private boolean ensureNotificationPermission(String setting, String channelId) {
+        if ("connection".equals(channelId)) LinkService.createConnectionChannel(this);
+        else NotificationSender.createMessageChannel(this);
+        if (notificationAllowed(channelId)) return true;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        boolean appAllowed = manager != null && manager.areNotificationsEnabled()
+            && (Build.VERSION.SDK_INT < 33 || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED);
+        Intent intent = new Intent(appAllowed ? Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS : Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+        if (appAllowed) intent.putExtra(Settings.EXTRA_CHANNEL_ID, channelId);
+        return guidePermission(setting, "需要允许 PairLink 的" + (appAllowed ? ("connection".equals(channelId) ? "共享连接通知" : "消息通知") : "系统通知权限"), intent);
+    }
+    private boolean ensureNotificationAccess(String setting) {
+        if (NotificationReaderService.hasAccess(this)) return true;
+        return guidePermission(setting, "需要授予 PairLink 通知访问权限", new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+    }
+    private boolean guidePermission(String setting, String message, Intent intent) {
+        pendingPermission = setting;
+        permissionSettingsOpened = false;
+        Config.prefs(this).edit().putBoolean(setting, false).apply();
+        refreshState();
+        ui.setDialog(null);
+        try {
+            startActivity(intent);
+            permissionSettingsOpened = true;
+            permissionToast(message);
+        } catch (ActivityNotFoundException e) {
+            pendingPermission = null;
+            ui.message("无法打开权限设置", message + "。此系统没有提供对应页面，请在系统设置中手动授权后再开启。");
+        }
+        return false;
+    }
+    private void permissionToast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
+    private void finishPermissionSettings() {
+        if (!permissionSettingsOpened || pendingPermission == null) return;
+        String setting = pendingPermission;
+        pendingPermission = null;
+        permissionSettingsOpened = false;
+        boolean granted = ("notifications".equals(setting) || "media".equals(setting))
+            ? NotificationReaderService.hasAccess(this)
+            : notificationAllowed("send_notifications".equals(setting) ? NotificationSender.CHANNEL_ID : "connection");
+        if (!granted) { permissionToast("所需权限尚未授予，开关保持关闭"); return; }
+        switch (setting) {
+            case "status_notification": changeStatusNotification(true); break;
+            case "send_notifications": changeSendNotifications(true); break;
+            case "notifications": changeNotifications(true); break;
+            case "media": changeMedia(true); break;
+            case "sharing": changeSharing(true); break;
+            default: break;
+        }
     }
     public void changeSharing(boolean checked) {
         if (checked && !settingsValid()) { toast("请先保存有效的连接设置"); return; }
-        if (checked && Config.statusNotification(this)) requestNotificationPermission();
+        if (checked && Config.statusNotification(this) && !ensureNotificationPermission("sharing", "connection")) return;
         Config.prefs(this).edit().putBoolean("sharing", checked).apply();
         if (checked) LinkService.start(this, null);
         else stopService(new Intent(this, LinkService.class));
@@ -148,7 +206,7 @@ public final class MainActivity extends ComponentActivity {
         if (!checked) {
             awaitingShizuku = false;
             Config.prefs(this).edit().putBoolean("shizuku", false).apply();
-            refreshState(); policy(); ShizukuBridge.cancel();
+            refreshState(); policy();
             return;
         }
         ui.confirm("授权 Shizuku / Sui 指令", "允许对方在开启 Shell 指令后，通过 Shizuku / Sui 执行指令。此开关不修改应用暂停的特权工作模式。实际权限由 Shizuku / Sui 的启动身份决定。", "授权", () -> {
@@ -167,81 +225,90 @@ public final class MainActivity extends ComponentActivity {
         Config.prefs(this).edit().putString("night_mode", mode).apply();
         refreshState();
     }
-    public void changeDhizuku(boolean checked) {
-        if (!checked) {
-            awaitingDhizuku = false;
-            Config.prefs(this).edit().putBoolean("dhizuku", false).apply();
-            refreshState(); policy(); return;
+    public void selectAppControlMode(String mode) { requestPrivilegeMode(mode, false); }
+    private void finishPrivilegeMode(String mode) {
+        Config.prefs(this).edit().putString("app_control_mode", mode).apply();
+        refreshState(); policy();
+        if (pendingAppControl) {
+            pendingAppControl = false;
+            confirmAppControl();
         }
-        ui.confirm("授权 Dhizuku", "允许 PairLink 通过 Dhizuku 暂停和恢复应用，不用于 Shell。请先在 Dhizuku 中完成激活，再单独授予 PairLink 权限。", "授权", () -> {
-            if (!DhizukuBridge.available(this)) { toast("请先安装、激活并启动 Dhizuku"); return; }
-            if (DhizukuBridge.granted(this)) {
-                Config.prefs(this).edit().putBoolean("dhizuku", true).putString("app_control_mode", "dhizuku").apply();
-                refreshState(); policy(); return;
+    }
+    private void requestPrivilegeMode(String mode, boolean enableAppControl) {
+        if (!mode.equals("none") && !mode.equals("dhizuku") && !mode.equals("shizuku") && !mode.equals("root")) return;
+        if (busy || awaitingDhizuku || awaitingShizukuMode || awaitingShizuku) { toast("请先完成当前请求或授权"); return; }
+        int request = ++modeRequestGeneration;
+        pendingAppControl = enableAppControl;
+        if ("none".equals(mode)) { pendingAppControl = false; finishPrivilegeMode(mode); return; }
+        if ("dhizuku".equals(mode)) {
+            if (!DhizukuBridge.available(this)) {
+                pendingAppControl = false;
+                ui.message("Dhizuku 授权失败", "请先安装、激活并启动 Dhizuku，然后重新选择此模式。");
+                return;
             }
-            if (awaitingDhizuku) { toast("请先完成 Dhizuku 授权"); return; }
+            if (DhizukuBridge.granted(this)) { finishPrivilegeMode(mode); return; }
             try {
                 awaitingDhizuku = true;
                 DhizukuBridge.request(this, dhizukuPermissionResult);
             } catch (Exception e) {
-                awaitingDhizuku = false;
-                show("Dhizuku 授权请求失败：" + e.getMessage());
+                awaitingDhizuku = false; pendingAppControl = false;
+                ui.message("Dhizuku 授权失败", "无法申请权限：" + e.getMessage());
             }
+            return;
+        }
+        if ("shizuku".equals(mode)) {
+            if (!ShizukuBridge.available()) {
+                pendingAppControl = false;
+                ui.message("Shizuku / Sui 授权失败", "请先启动 Shizuku 或启用 Sui，然后重新选择此模式。");
+                return;
+            }
+            if (ShizukuBridge.granted()) { finishPrivilegeMode(mode); return; }
+            try {
+                if (Shizuku.shouldShowRequestPermissionRationale()) {
+                    pendingAppControl = false;
+                    ui.message("Shizuku / Sui 授权失败", "权限已被拒绝，请在 Shizuku / Sui 管理器中允许 PairLink 后重试。");
+                    return;
+                }
+                awaitingShizukuMode = true;
+                Shizuku.requestPermission(200);
+            } catch (RuntimeException e) {
+                awaitingShizukuMode = false; pendingAppControl = false;
+                ui.message("Shizuku / Sui 授权失败", "无法申请权限：" + e.getMessage());
+            }
+            return;
+        }
+        busy = true; ui.setBusy(true); show("正在申请并验证 root 权限……");
+        network.execute(() -> {
+            String failure = null;
+            try {
+                ShellRunner.Result result = new ShellRunner().run("id", true, 20, () -> request == modeRequestGeneration);
+                if (result.timedOut || result.cancelled || result.exitCode != 0 || !result.stdout.contains("uid=0"))
+                    failure = "root 权限未授予、申请超时或验证失败，请在 root 管理器中允许 PairLink。";
+            } catch (Exception e) { failure = "无法申请 root 权限：" + e.getMessage(); }
+            String error = failure;
+            runOnUiThread(() -> {
+                busy = false; ui.setBusy(false);
+                if (isDestroyed() || request != modeRequestGeneration) return;
+                ui.setDialog(null);
+                if (error == null) finishPrivilegeMode("root");
+                else { pendingAppControl = false; ui.message("root 授权失败", error); }
+            });
         });
-    }
-    public void selectAppControlMode(String mode) {
-        if (!mode.equals("none") && !mode.equals("dhizuku") && !mode.equals("shizuku") && !mode.equals("root")) return;
-        int request = ++modeRequestGeneration;
-        awaitingShizukuMode = false;
-        awaitingDhizuku = false;
-        if (mode.equals("dhizuku") && !DhizukuBridge.granted(this)) {
-            changeDhizuku(true); return;
-        }
-        if (mode.equals("shizuku") && !ShizukuBridge.granted()) {
-            ui.confirm("授权 Shizuku / Sui", "授予 PairLink 使用 Shizuku / Sui 暂停和恢复应用的权限。远程 Shell 指令仍由下面的开关单独控制。", "授权", () -> {
-                if (request != modeRequestGeneration) return;
-                if (!ShizukuBridge.available()) { toast("请先启动 Shizuku 或启用 Sui"); return; }
-                try {
-                    if (Shizuku.shouldShowRequestPermissionRationale()) { toast("请在 Shizuku / Sui 管理器中为 PairLink 授权"); return; }
-                    awaitingShizukuMode = true;
-                    Shizuku.requestPermission(200);
-                } catch (RuntimeException e) { awaitingShizukuMode = false; toast("Shizuku / Sui 授权请求失败"); }
-            });
-            return;
-        }
-        if (mode.equals("root")) {
-            ui.confirm("授权 root 工作模式", "请求本机 root 授权，用于应用暂停和恢复。不会自动允许对方执行 root 指令。", "请求授权", () -> {
-                if (request != modeRequestGeneration) return;
-                network.execute(() -> {
-                    try {
-                        if (request != modeRequestGeneration) return;
-                        ShellRunner.Result result = new ShellRunner().run("id", true, 20, () -> request == modeRequestGeneration);
-                        boolean granted = !result.timedOut && result.exitCode == 0 && result.stdout.contains("uid=0");
-                        runOnUiThread(() -> {
-                            if (isDestroyed() || request != modeRequestGeneration) return;
-                            if (granted) {
-                                Config.prefs(this).edit().putString("app_control_mode", "root").apply();
-                                refreshState(); policy();
-                            } else toast("root 授权失败");
-                        });
-                    } catch (Exception e) {
-                        runOnUiThread(() -> { if (!isDestroyed() && request == modeRequestGeneration) toast("root 不可用：" + e.getMessage()); });
-                    }
-                });
-            });
-            return;
-        }
-        Config.prefs(this).edit().putString("app_control_mode", mode).apply();
-        refreshState(); policy();
     }
     public void changeAppControl(boolean checked) {
         if (!checked) {
+            pendingAppControl = false;
             Config.prefs(this).edit().putBoolean("app_control", false).apply(); refreshState(); policy(); return;
         }
-        if ("none".equals(AppControl.mode(this))) { toast("请先选择特权工作模式"); return; }
+        String mode = AppControl.mode(this);
+        if ("none".equals(mode)) { toast("请先选择特权工作模式"); return; }
+        requestPrivilegeMode(mode, true);
+    }
+    private void confirmAppControl() {
         ui.confirm("允许暂停应用", "对方可以暂停和恢复指定应用。本机选择的执行方式为：" + AppControl.label(AppControl.mode(this))
             + "。恢复本机按钮可在关闭共享后使用。关闭授权不会自动恢复已暂停应用。", "开启", () -> {
-            Config.prefs(this).edit().putBoolean("app_control", true).apply(); refreshState();
+            if (!AppControl.authorized(this, AppControl.mode(this), false)) { changeAppControl(true); return; }
+            Config.prefs(this).edit().putBoolean("app_control", true).apply(); refreshState(); policy();
         });
     }
     public void suspendPeerApp() { changePeerApp(true); }
@@ -378,7 +445,9 @@ public final class MainActivity extends ComponentActivity {
             refreshState(); policy();
             return;
         }
+        if (!ensureNotificationPermission("send_notifications", NotificationSender.CHANNEL_ID)) return;
         ui.confirm("允许发送普通通知", "开启后，对方可以在你的手机上发送普通系统通知。通知仍受系统通知权限和通知开关控制。", "开启", () -> {
+            if (!ensureNotificationPermission("send_notifications", NotificationSender.CHANNEL_ID)) return;
             Config.prefs(this).edit().putBoolean("send_notifications", true).apply();
             refreshState(); policy();
         });
@@ -389,16 +458,13 @@ public final class MainActivity extends ComponentActivity {
             refreshState();
             return;
         }
+        if (!ensureNotificationAccess("notifications")) return;
         ui.confirm("开启通知共享", "开启后，对方可以读取通知中心当前的应用名、标题和正文。需要你在系统设置中单独授予通知访问权限。", "开启", () -> {
+            if (!ensureNotificationAccess("notifications")) return;
             Config.prefs(this).edit().putBoolean("notifications", true).apply();
             refreshState();
-            if (!NotificationReaderService.hasAccess(this)) notificationPermission();
-            else NotificationReaderService.ensureConnected(this);
+            NotificationReaderService.ensureConnected(this);
         });
-    }
-    public void notificationPermission() {
-        try { startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }
-        catch (ActivityNotFoundException e) { toast("此系统未提供通知访问设置，请在系统设置中搜索通知使用权"); }
     }
     public void usagePermission() { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); }
     public void testConnection() {
@@ -426,11 +492,12 @@ public final class MainActivity extends ComponentActivity {
             refreshState();
             return;
         }
+        if (!ensureNotificationAccess("media")) return;
         ui.confirm("开启媒体播放共享", "允许对方查询系统媒体面板中的应用、曲目、作者、播放状态和进度。需要通知访问权限，不会录音。", "开启", () -> {
+            if (!ensureNotificationAccess("media")) return;
             Config.prefs(this).edit().putBoolean("media", true).apply();
             refreshState();
-            if (!NotificationReaderService.hasAccess(this)) notificationPermission();
-            else NotificationReaderService.ensureConnected(this);
+            NotificationReaderService.ensureConnected(this);
         });
     }
     public void queryMedia() { send("get_media", new JSONObject()); }
@@ -562,8 +629,13 @@ public final class MainActivity extends ComponentActivity {
         super.onResume();
         refreshState();
         NotificationReaderService.ensureConnected(this);
+        finishPermissionSettings();
         permissionHandler.removeCallbacks(permissionRefresh);
         permissionHandler.postDelayed(permissionRefresh, 1000);
+    }
+    @Override public void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        if (pendingPermission != null) out.putString("pending_permission", pendingPermission);
     }
     @Override public void onPause() {
         permissionHandler.removeCallbacks(permissionRefresh);
@@ -576,5 +648,6 @@ public final class MainActivity extends ComponentActivity {
         network.shutdown(); super.onDestroy();
     }
 }
+
 
 

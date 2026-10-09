@@ -404,8 +404,6 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 SwitchPreference(title = "允许使用 Shell 权限执行指令", summary = "通过 Shizuku / Sui 执行，实际权限由其启动身份决定", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(ui.privilegeStatus)
-                                    if (!ui.notificationAccess)
-                                        Action("开启通知访问权限", activity::notificationPermission, primary = false)
                                     if (!ui.usageAllowed)
                                         Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
                                 }
@@ -781,5 +779,6 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         UiDialogs(ui)
     }
 }
+
 
 

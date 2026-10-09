@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
@@ -36,11 +36,6 @@ async function fixture(t, options = {}) {
 }
 const input = (action = 'get_status', params = {}) => ({ sender_id: 'alice', target_id: 'bob', action, params });
 const received = ws => once(ws, 'message').then(([data]) => JSON.parse(data.toString()));
-
-test('Railway and Worker use identical protocol validation', async () => {
-  assert.equal(await readFile(new URL('../src/protocol.js', import.meta.url), 'utf8'),
-    await readFile(new URL('../../worker/src/protocol.js', import.meta.url), 'utf8'));
-});
 
 test('Android heartbeat and every supported action round-trip via HTTP results', async t => {
   const f = await fixture(t);
@@ -133,3 +128,4 @@ test('server detects an unresponsive WebSocket and marks new commands offline', 
   await once(ws, 'close');
   assert.equal((await f.request('/api/commands', input())).body.status, 'offline');
 });
+

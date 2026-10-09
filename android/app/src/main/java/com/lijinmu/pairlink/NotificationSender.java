@@ -12,6 +12,14 @@ import android.media.RingtoneManager;
 import org.json.JSONObject;
 
 final class NotificationSender {
+    static final String CHANNEL_ID = "pairlink_messages_v2";
+    static void createMessageChannel(Context c) {
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "PairLink 消息", NotificationManager.IMPORTANCE_HIGH);
+        channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+            new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+        c.getSystemService(NotificationManager.class).createNotificationChannel(channel);
+    }
     static JSONObject send(Context c, String title, String content) throws Exception {
         title = title == null ? "" : title.trim();
         content = content == null ? "" : content.trim();
@@ -21,14 +29,12 @@ final class NotificationSender {
             throw new Exception("本机尚未授予通知权限");
         NotificationManager manager = c.getSystemService(NotificationManager.class);
         if (manager == null || !manager.areNotificationsEnabled()) throw new Exception("本机通知已关闭");
-        String channelId = "pairlink_messages_v2";
-        NotificationChannel channel = new NotificationChannel(channelId, "PairLink 消息", NotificationManager.IMPORTANCE_HIGH);
-        channel.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
-            new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
-        manager.createNotificationChannel(channel);
+        createMessageChannel(c);
+        NotificationChannel channel = manager.getNotificationChannel(CHANNEL_ID);
+        if (channel == null || channel.getImportance() == NotificationManager.IMPORTANCE_NONE)
+            throw new Exception("本机 PairLink 消息通知渠道已关闭");
         int id = (int)(System.currentTimeMillis() & 0x7fffffff);
-        Notification notification = new Notification.Builder(c, channelId).setSmallIcon(android.R.drawable.ic_dialog_info)
+        Notification notification = new Notification.Builder(c, CHANNEL_ID).setSmallIcon(android.R.drawable.ic_dialog_info)
             .setCategory(Notification.CATEGORY_MESSAGE).setContentTitle(title).setContentText(content).setStyle(new Notification.BigTextStyle().bigText(content))
             .setAutoCancel(true).build();
         manager.notify(id, notification);
