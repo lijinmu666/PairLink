@@ -26,6 +26,7 @@ public final class LinkService extends Service {
     private volatile boolean executingRoot;
     private volatile boolean executingShizuku;
     private volatile boolean executingAppControl;
+    private volatile String executingAppBackend;
     private String base;
 
     @Override public void onCreate() {
@@ -46,8 +47,10 @@ public final class LinkService extends Service {
         if (!Config.sharing(this)) { runner.cancel(); ShizukuBridge.cancel(); stopSelf(); return START_NOT_STICKY; }
         updateStatusNotification(Config.prefs(this).getString("connection", "正在连接"));
         if (intent != null && POLICY.equals(intent.getAction())) {
-            boolean denied = executingAppControl ? !Config.prefs(this).getBoolean("app_control", false) : !Config.shell(this);
-            if (denied || (executingRoot && !Config.root(this)) || (executingShizuku && !Config.shizuku(this))) {
+            boolean denied = executingAppControl
+                ? !Config.prefs(this).getBoolean("app_control", false) || !AppControl.authorized(this, executingAppBackend, false)
+                : !Config.shell(this) || (executingRoot && !Config.root(this)) || (executingShizuku && !Config.shizuku(this));
+            if (denied) {
                 runner.cancel(); ShizukuBridge.cancel();
             }
         }
@@ -163,6 +166,7 @@ public final class LinkService extends Service {
                     String pkg = params.getString("package_name");
                     boolean suspended = params.getBoolean("suspended");
                     String backend = AppControl.backend(this, pkg, suspended);
+                    executingAppBackend = backend;
                     executingAppControl = true;
                     executingRoot = "root".equals(backend);
                     executingShizuku = "shizuku".equals(backend);
@@ -204,7 +208,7 @@ public final class LinkService extends Service {
             returnResult(id, null, message);
             Config.log(this, "指令失败：" + message);
         }
-        finally { executingRoot = false; executingShizuku = false; executingAppControl = false; busy.set(false); }
+        finally { executingRoot = false; executingShizuku = false; executingAppControl = false; executingAppBackend = null; busy.set(false); }
     }
     private void returnResult(String id, JSONObject result, String error) {
         try {
@@ -222,4 +226,5 @@ public final class LinkService extends Service {
     }
     @Override public IBinder onBind(Intent intent) { return null; }
 }
+
 

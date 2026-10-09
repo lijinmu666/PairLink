@@ -18,11 +18,12 @@ final class AppControl {
     static final Pattern PACKAGE = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+");
     private static final Pattern STATE = Pattern.compile("new suspended state:\\s*(true|false)");
     static String mode(Context c) {
-        String mode = Config.prefs(c).getString("app_control_mode", "dhizuku");
-        return "shizuku".equals(mode) || "root".equals(mode) ? mode : "dhizuku";
+        String mode = Config.prefs(c).getString("app_control_mode", "none");
+        return "dhizuku".equals(mode) || "shizuku".equals(mode) || "root".equals(mode) ? mode : "none";
     }
     static String label(String mode) {
         switch (mode) {
+            case "none": return "无";
             case "dhizuku": return "Dhizuku";
             case "device_owner": return "旧版设备所有者（已移除）";
             case "shizuku": return "Shizuku / Sui";
@@ -41,6 +42,15 @@ final class AppControl {
     static String backend(Context c, String pkg, boolean suspended) {
         return suspended ? mode(c) : Config.prefs(c).getString(TRACK + pkg, mode(c));
     }
+    static boolean authorized(Context c, String backend, boolean local) {
+        if (backend == null || (!local && !backend.equals(mode(c)))) return false;
+        switch (backend) {
+            case "dhizuku": return DhizukuBridge.granted(c);
+            case "shizuku": return ShizukuBridge.granted();
+            case "root": return true;
+            default: return false;
+        }
+    }
     static JSONObject set(Context c, String pkg, boolean suspended, boolean local, ShellRunner runner) throws Exception {
         if (pkg == null || pkg.length() > 255 || !PACKAGE.matcher(pkg).matches()) throw new Exception("应用包名无效");
         if (suspended && c.getPackageName().equals(pkg)) throw new Exception("不能暂停 PairLink 本身");
@@ -56,12 +66,7 @@ final class AppControl {
         BooleanSupplier allowed = () -> {
             if (suspended && !local && Config.pauseBlocked(c, pkg)) return false;
             if (!local && (!Config.sharing(c) || !prefs.getBoolean("app_control", false))) return false;
-            switch (backend) {
-                case "dhizuku": return DhizukuBridge.granted(c) && (local || prefs.getBoolean("dhizuku", false));
-                case "shizuku": return ShizukuBridge.granted() && (local || prefs.getBoolean("shizuku", false));
-                case "root": return local || Config.root(c);
-                default: return false;
-            }
+            return authorized(c, backend, local);
         };
         if (!local && (!Config.sharing(c) || !prefs.getBoolean("app_control", false))) throw new Exception("对方未开启应用暂停授权");
         if (!allowed.getAsBoolean()) throw new Exception(label(backend) + " 未就绪或未授权，请在被操作手机设置");
@@ -110,3 +115,4 @@ final class AppControl {
         return new JSONObject().put("results", results);
     }
 }
+

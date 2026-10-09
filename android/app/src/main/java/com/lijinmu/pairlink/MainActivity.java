@@ -21,7 +21,9 @@ public final class MainActivity extends ComponentActivity {
     private final UiState ui = new UiState();
     private volatile boolean busy;
     private boolean awaitingShizuku;
+    private boolean awaitingShizukuMode;
     private boolean awaitingDhizuku;
+    private volatile int modeRequestGeneration;
     private final DhizukuRequestPermissionListener dhizukuPermissionResult = new DhizukuRequestPermissionListener() {
         @Override public void onRequestPermission(int result) {
             runOnUiThread(() -> {
@@ -40,12 +42,16 @@ public final class MainActivity extends ComponentActivity {
     private final Shizuku.OnRequestPermissionResultListener shizukuPermissionResult = (code, result) -> {
         if (code != 200) return;
         runOnUiThread(() -> {
-            if (isDestroyed()) return;
-            if (awaitingShizuku && result == PackageManager.PERMISSION_GRANTED)
+            if (isDestroyed() || (!awaitingShizuku && !awaitingShizukuMode)) return;
+            boolean granted = result == PackageManager.PERMISSION_GRANTED && ShizukuBridge.granted();
+            if (awaitingShizuku && granted)
                 Config.prefs(this).edit().putBoolean("shizuku", true).apply();
+            if (awaitingShizukuMode && granted)
+                Config.prefs(this).edit().putString("app_control_mode", "shizuku").apply();
             awaitingShizuku = false;
-            refreshState();
-            toast(result == PackageManager.PERMISSION_GRANTED ? "Shizuku / Sui 已授权" : "Shizuku / Sui 授权被拒绝");
+            awaitingShizukuMode = false;
+            refreshState(); policy();
+            toast(granted ? "Shizuku / Sui 已授权" : "Shizuku / Sui 未授权或服务已停止");
         });
     };
     private final Handler permissionHandler = new Handler(Looper.getMainLooper());
@@ -82,17 +88,12 @@ public final class MainActivity extends ComponentActivity {
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
         ui.setNotificationAccess(NotificationReaderService.hasAccess(this));
         boolean dhizukuGranted = DhizukuBridge.granted(this);
-        boolean dhizuku = Config.prefs(this).getBoolean("dhizuku", false) && dhizukuGranted;
-        ui.setPrivilegeStatus(ShizukuBridge.status() + "\nDhizuku：" + (dhizukuGranted ? (dhizuku ? "已授权并开启" : "已授权，未开启") : "未授权或未运行"));
-        boolean shizuku = Config.prefs(this).getBoolean("shizuku", false) && ShizukuBridge.granted();
-        boolean root = Config.prefs(this).getBoolean("root", false);
+        boolean dhizuku = "dhizuku".equals(AppControl.mode(this)) && dhizukuGranted;
+        ui.setPrivilegeStatus(ShizukuBridge.status() + "\nDhizuku：" + (dhizukuGranted ? (dhizuku ? "已授权并选择" : "已授权，未选择") : "未授权或未运行"));
         String mode = AppControl.mode(this);
-        if ("shizuku".equals(mode) && shizuku) ui.setPrivilegeMode("Shizuku");
-        else if ("root".equals(mode) && root) ui.setPrivilegeMode("root");
-        else if ("dhizuku".equals(mode) && dhizuku) ui.setPrivilegeMode("Dhizuku");
-        else if (root) ui.setPrivilegeMode("root");
-        else if (shizuku) ui.setPrivilegeMode("Shizuku");
-        else if (dhizuku) ui.setPrivilegeMode("Dhizuku");
+        if ("shizuku".equals(mode) && ShizukuBridge.granted()) ui.setPrivilegeMode("Shizuku");
+        else if ("root".equals(mode)) ui.setPrivilegeMode("root");
+        else if ("dhizuku".equals(mode) && dhizukuGranted) ui.setPrivilegeMode("Dhizuku");
         else ui.setPrivilegeMode("无特权");
     }
     private void refreshState() {
@@ -150,7 +151,7 @@ public final class MainActivity extends ComponentActivity {
             refreshState(); policy(); ShizukuBridge.cancel();
             return;
         }
-        ui.confirm("授权 Shizuku / Sui", "允许 PairLink 通过 Shizuku / Sui 执行已开启共享的 Shell 和应用暂停请求。实际权限由 Shizuku / Sui 的启动身份决定。", "授权", () -> {
+        ui.confirm("授权 Shizuku / Sui 指令", "允许对方在开启 Shell 指令后，通过 Shizuku / Sui 执行指令。此开关不修改应用暂停的特权工作模式。实际权限由 Shizuku / Sui 的启动身份决定。", "授权", () -> {
             if (!ShizukuBridge.available()) { toast("请先启动 Shizuku 或安装并启用 Sui"); return; }
             if (ShizukuBridge.granted()) {
                 Config.prefs(this).edit().putBoolean("shizuku", true).apply(); refreshState(); return;
@@ -189,14 +190,47 @@ public final class MainActivity extends ComponentActivity {
         });
     }
     public void selectAppControlMode(String mode) {
-        if (!mode.equals("dhizuku") && !mode.equals("shizuku") && !mode.equals("root")) return;
-        if (mode.equals("dhizuku") && (!DhizukuBridge.granted(this) || !Config.prefs(this).getBoolean("dhizuku", false))) {
+        if (!mode.equals("none") && !mode.equals("dhizuku") && !mode.equals("shizuku") && !mode.equals("root")) return;
+        int request = ++modeRequestGeneration;
+        awaitingShizukuMode = false;
+        awaitingDhizuku = false;
+        if (mode.equals("dhizuku") && !DhizukuBridge.granted(this)) {
             changeDhizuku(true); return;
         }
-        if (mode.equals("shizuku") && (!ShizukuBridge.granted() || !Config.prefs(this).getBoolean("shizuku", false))) {
-            toast("请先开启并授权 Shizuku / Sui"); return;
+        if (mode.equals("shizuku") && !ShizukuBridge.granted()) {
+            ui.confirm("授权 Shizuku / Sui", "授予 PairLink 使用 Shizuku / Sui 暂停和恢复应用的权限。远程 Shell 指令仍由下面的开关单独控制。", "授权", () -> {
+                if (request != modeRequestGeneration) return;
+                if (!ShizukuBridge.available()) { toast("请先启动 Shizuku 或启用 Sui"); return; }
+                try {
+                    if (Shizuku.shouldShowRequestPermissionRationale()) { toast("请在 Shizuku / Sui 管理器中为 PairLink 授权"); return; }
+                    awaitingShizukuMode = true;
+                    Shizuku.requestPermission(200);
+                } catch (RuntimeException e) { awaitingShizukuMode = false; toast("Shizuku / Sui 授权请求失败"); }
+            });
+            return;
         }
-        if (mode.equals("root") && !Config.prefs(this).getBoolean("root", false)) { toast("请先开启 Shell 并单独授权 root"); return; }
+        if (mode.equals("root")) {
+            ui.confirm("授权 root 工作模式", "请求本机 root 授权，用于应用暂停和恢复。不会自动允许对方执行 root 指令。", "请求授权", () -> {
+                if (request != modeRequestGeneration) return;
+                network.execute(() -> {
+                    try {
+                        if (request != modeRequestGeneration) return;
+                        ShellRunner.Result result = new ShellRunner().run("id", true, 20, () -> request == modeRequestGeneration);
+                        boolean granted = !result.timedOut && result.exitCode == 0 && result.stdout.contains("uid=0");
+                        runOnUiThread(() -> {
+                            if (isDestroyed() || request != modeRequestGeneration) return;
+                            if (granted) {
+                                Config.prefs(this).edit().putString("app_control_mode", "root").apply();
+                                refreshState(); policy();
+                            } else toast("root 授权失败");
+                        });
+                    } catch (Exception e) {
+                        runOnUiThread(() -> { if (!isDestroyed() && request == modeRequestGeneration) toast("root 不可用：" + e.getMessage()); });
+                    }
+                });
+            });
+            return;
+        }
         Config.prefs(this).edit().putString("app_control_mode", mode).apply();
         refreshState(); policy();
     }
@@ -204,6 +238,7 @@ public final class MainActivity extends ComponentActivity {
         if (!checked) {
             Config.prefs(this).edit().putBoolean("app_control", false).apply(); refreshState(); policy(); return;
         }
+        if ("none".equals(AppControl.mode(this))) { toast("请先选择特权工作模式"); return; }
         ui.confirm("允许暂停应用", "对方可以暂停和恢复指定应用。本机选择的执行方式为：" + AppControl.label(AppControl.mode(this))
             + "。恢复本机按钮可在关闭共享后使用。关闭授权不会自动恢复已暂停应用。", "开启", () -> {
             Config.prefs(this).edit().putBoolean("app_control", true).apply(); refreshState();
@@ -541,4 +576,5 @@ public final class MainActivity extends ComponentActivity {
         network.shutdown(); super.onDestroy();
     }
 }
+
 

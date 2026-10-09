@@ -55,7 +55,7 @@ class UiState {
     var nightMode by mutableStateOf("system")
     var sendShizuku by mutableStateOf(false)
     var appControl by mutableStateOf(false)
-    var appControlMode by mutableStateOf("dhizuku")
+    var appControlMode by mutableStateOf("none")
     var privilegeStatus by mutableStateOf("")
     var privilegeMode by mutableStateOf("无特权")
     var statusNotification by mutableStateOf(true)
@@ -368,7 +368,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         }
                         item {
                             Section("连接设置") {
-                                SwitchPreference(title = "允许对方查询此设备", summary = "开启后建立接收通道；暂停后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
+                                SwitchPreference(title = "开启共享连接", summary = "连接后默认允许查询应用列表和状态；关闭后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Input(ui.server, { ui.server = it }, "服务器 HTTPS 根地址", enabled = !ui.sharing)
                                     Input(ui.own, { ui.own = it }, "自己的设备 ID", enabled = !ui.sharing)
@@ -381,58 +381,36 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
                         item {
-                            Section("执行和通知授权") {
-                                SwitchPreference(title = "允许对方执行 Shell", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
-                                SwitchPreference(title = "允许使用 Shizuku / Sui", summary = "本机确认并授权后，用于 Shell 和应用暂停", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
-                                SwitchPreference(title = "允许使用 Dhizuku", summary = "本机确认并授权后，仅用于应用暂停和恢复", checked = ui.dhizuku, onCheckedChange = activity::changeDhizuku)
-                                SwitchPreference(title = "允许对方使用 root", summary = "需要本机 root 管理器单独授权", checked = ui.root, onCheckedChange = activity::changeRoot)
-                                SwitchPreference(title = "允许对方发送普通通知", summary = "接收方确认后才允许发送", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
-                                SwitchPreference(title = "允许对方查看通知", summary = if (ui.notificationAccess) "仅在查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
+                            Section("权限") {
+                                val modes = listOf("none", "dhizuku", "shizuku", "root")
+                                OverlayDropdownPreference(
+                                    title = "特权工作模式",
+                                    summary = "暂停应用使用所选模式；Shell 指令权限单独设置",
+                                    items = listOf("无", "Dhizuku", "Shizuku / Sui", "root"),
+                                    selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
+                                    onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
+                                )
+                                SwitchPreference(title = "允许对方查看通知列表", summary = if (ui.notificationAccess) "查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
                                 SwitchPreference(title = "允许对方查看媒体播放", summary = if (ui.notificationAccess) "查询系统媒体面板的曲目和播放状态" else "需要授予系统通知访问权限", checked = ui.media, onCheckedChange = activity::changeMedia)
-                                if (!ui.notificationAccess) {
-                                    Column(Modifier.padding(16.dp)) {
-                                        Action("开启通知访问权限", activity::notificationPermission, primary = false)
-                                    }
+                                SwitchPreference(title = "允许对方发送系统通知", summary = "发送普通通知", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
+                                SwitchPreference(title = "允许对方暂停应用", summary = "不能暂停 PairLink 本身和系统应用", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("已保护 ${ui.pauseBlacklistCount} 个本机应用。")
+                                    Action("管理暂停黑名单", activity::openPauseBlacklist, enabled = !ui.busy, primary = false)
+                                    Action("恢复已暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
                                 }
-                                if (!ui.usageAllowed) {
-                                    Column(Modifier.padding(16.dp)) {
+                                SwitchPreference(title = "允许对方执行 Shell 指令", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
+                                SwitchPreference(title = "允许使用 root 权限执行指令", summary = "需开启 Shell 指令并授权 root", checked = ui.root, onCheckedChange = activity::changeRoot)
+                                SwitchPreference(title = "允许使用 Shell 权限执行指令", summary = "通过 Shizuku / Sui 执行，实际权限由其启动身份决定", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(ui.privilegeStatus)
+                                    if (!ui.notificationAccess)
+                                        Action("开启通知访问权限", activity::notificationPermission, primary = false)
+                                    if (!ui.usageAllowed)
                                         Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
-                                    }
-                    }
-                }
-            }
-            item {
-                Section("本机应用暂停授权") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(ui.privilegeStatus)
-                        val modes = listOf("dhizuku", "shizuku", "root")
-                        OverlayDropdownPreference(
-                            title = "应用暂停执行方式",
-                            summary = "本机接受暂停请求时使用",
-                            items = listOf("Dhizuku", "Shizuku / Sui", "root"),
-                            selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
-                            onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
-                        )
-                    }
-                    SwitchPreference(title = "允许对方暂停和恢复应用", summary = "默认关闭；不能暂停 PairLink 本身和系统应用", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
-                }
-            }
-            item {
-                Section("应用暂停黑名单") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("已保护 ${ui.pauseBlacklistCount} 个本机应用。加入后，对方不能远程暂停，仍可恢复。")
-                        Action("管理黑名单", activity::openPauseBlacklist, enabled = !ui.busy, primary = false)
-                    }
-                }
-            }
-            item {
-                Section("本机紧急恢复") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("共享关闭后也可以恢复本机由 PairLink 暂停的应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        Action("恢复本机由 PairLink 暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
-                    }
-                }
-            }
+                                }
+                            }
+                        }
 
                     }
                 }
@@ -803,4 +781,5 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         UiDialogs(ui)
     }
 }
+
 
