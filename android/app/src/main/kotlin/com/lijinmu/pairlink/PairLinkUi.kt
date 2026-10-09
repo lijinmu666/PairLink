@@ -297,7 +297,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         item {
                             Section("权限") {
                                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    OverviewField("允许对方查询此手机", if (ui.sharing) "已开启" else "未开启")
+                                    OverviewField("允许查询", if (ui.sharing) "已开启" else "未开启")
                                     OverviewField("权限模式", ui.privilegeMode)
                                 }
                             }
@@ -346,7 +346,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         Input(ui.script, { ui.script = it }, "输入 Shell 命令，例如 whoami", singleLine = false)
                     }
                     SwitchPreference(title = "使用对方的 root 权限", checked = ui.sendRoot, onCheckedChange = { ui.sendRoot = it; if (it) ui.sendShizuku = false })
-                    SwitchPreference(title = "使用对方的 Shizuku / Sui", checked = ui.sendShizuku, onCheckedChange = { ui.sendShizuku = it; if (it) ui.sendRoot = false })
+                    SwitchPreference(title = "使用对方的 Shell 权限", checked = ui.sendShizuku, onCheckedChange = { ui.sendShizuku = it; if (it) ui.sendRoot = false })
                     Column(Modifier.padding(16.dp)) {
                         Action("执行", activity::executeShell, enabled = !ui.busy)
                     }
@@ -359,7 +359,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 val modes = listOf("system", "on", "off")
                                 OverlayDropdownPreference(
                                     title = "夜间模式",
-                                    items = listOf("系统", "开启", "关闭"),
+                                    items = listOf("默认", "开启", "关闭"),
                                     selectedIndex = modes.indexOf(ui.nightMode).coerceAtLeast(0),
                                     onSelectedIndexChange = { index -> activity.selectNightMode(modes[index]) },
                                 )
