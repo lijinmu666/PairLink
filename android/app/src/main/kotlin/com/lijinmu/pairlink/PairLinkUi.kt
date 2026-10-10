@@ -60,6 +60,8 @@ class UiState {
     var appControlMode by mutableStateOf("none")
     var privilegeStatus by mutableStateOf("")
     var privilegeMode by mutableStateOf("无特权")
+    var commandSummary by mutableStateOf(false)
+    var summaryMinutes by mutableIntStateOf(60)
     var statusNotification by mutableStateOf(true)
     var sharing by mutableStateOf(false)
     var shell by mutableStateOf(false)
@@ -152,12 +154,17 @@ class UiState {
         dialog = null
         resultPage = page
     }
-    fun showRecords(logs: String, device: String) {
+    fun showRecords(records: JSONArray, device: String, from: Long, to: Long, incomingOnly: Boolean, count: Long) {
+        busy = false
         dialog = null
+        val cards = (0 until records.length()).mapNotNull { records.optJSONObject(it)?.let(::recordCard) }
+        val range = if (incomingOnly) "统计时段：${formatTime(from)} 至 ${formatTime(to)}，共 $count 次对方指令" else "最近 24 小时，共 ${cards.size} 条记录"
         resultPage = ResultPage(
-            "本机记录", device,
-            logs.lineSequence().filter { it.isNotBlank() }.map { ResultCard("执行与连接记录", body = it) }.toList(),
-            emptyMessage = "暂无记录",
+            "连接与执行记录", device, cards, summary = range,
+            note = "点击卡片查看详情。记录仅保存在本机，保留 24 小时、最多 1000 条。旧版记录没有指令和权限详情。" +
+                if (incomingOnly && count > cards.size) "部分详情已过期、被清除或因数量限制移除。" else "",
+            emptyMessage = if (incomingOnly) "此时段暂无可查看的记录，或记录已清除／过期" else "暂无记录",
+            historyView = true, historyFrom = from, historyTo = to, historyIncoming = incomingOnly, historyCount = count,
         )
     }
     fun showRestored(results: JSONArray) {
@@ -226,13 +233,16 @@ private fun Screen(activity: MainActivity, ui: UiState) {
     val page = ui.resultPage
     val picker = ui.appPicker
     val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(page) { if (page != null) keyboard?.hide() }
-    BackHandler(enabled = page != null && !ui.busy && ui.dialog == null) { ui.resultPage = null }
+    LaunchedEffect(page) {
+        if (page?.historyView == true) selectedTab = 1
+        if (page != null) keyboard?.hide()
+    }
+    BackHandler(enabled = page != null && !ui.busy && ui.dialog == null) { ui.resultPage = page?.parent }
     BackHandler(enabled = page == null && picker != null && !ui.busy && ui.dialog == null) { ui.appPicker = null }
     BackHandler(enabled = page == null && picker == null && selectedTab != 0 && ui.dialog == null && !ui.busy) { selectedTab = 0 }
     BackHandler(enabled = ui.busy) {}
     if (page != null) {
-        key(page) { ResultScreen(page, onBack = { ui.resultPage = null }) }
+        key(page) { ResultScreen(activity, ui, page, onBack = { ui.resultPage = page.parent }) }
         return
     }
     if (picker != null) {
@@ -325,6 +335,14 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     }
                 }
             }
+                        item {
+                            Section("本机记录") {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Action("查看连接与执行记录", activity::showLogs, enabled = !ui.busy, primary = false)
+                                    Action("清除记录", activity::clearLogs, enabled = !ui.busy, primary = false)
+                                }
+                            }
+                        }
                     }
                     2 -> {
                         item {
@@ -371,6 +389,17 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     onSelectedIndexChange = { index -> activity.selectNightMode(modes[index]) },
                                 )
                                 SwitchPreference(title = "后台状态通知", summary = "直接开关静默连接通知；关闭后仍尝试保持连接，但失去前台保活，更容易被系统回收", checked = ui.statusNotification, onCheckedChange = activity::changeStatusNotification)
+                                SwitchPreference(title = "指令定时通知", summary = "汇总对方向本机发起的指令；点按通知查看详情", checked = ui.commandSummary, onCheckedChange = activity::changeCommandSummary)
+                                if (ui.commandSummary) {
+                                    val intervals = listOf(15, 30, 60, 120, 360, 1440)
+                                    OverlayDropdownPreference(
+                                        title = "通知间隔",
+                                        summary = "省电机制可能延后发送；通知显示实际统计时段",
+                                        items = intervals.map { SummaryWindow.label(it) },
+                                        selectedIndex = intervals.indexOf(ui.summaryMinutes).coerceAtLeast(0),
+                                        onSelectedIndexChange = { index -> activity.selectSummaryInterval(intervals[index]) },
+                                    )
+                                }
                             }
                         }
                         item {
@@ -382,8 +411,6 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     Input(ui.peer, { ui.peer = it }, "对方的设备 ID", enabled = !ui.sharing)
                                     Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
                                     Action("测试服务器连接", activity::testConnection, enabled = !ui.busy, primary = false)
-                                    Action("查看记录", activity::showLogs, primary = false)
-                                    Action("清除记录", activity::clearLogs, primary = false)
                     }
                 }
             }
@@ -496,6 +523,8 @@ data class ResultCard(
     val subtitle: String = "",
     val fields: List<Pair<String, String>> = emptyList(),
     val body: String = "",
+    val detailFields: List<Pair<String, String>>? = null,
+    val detailBody: String = "",
 )
 
 data class ResultPage(
@@ -505,7 +534,129 @@ data class ResultPage(
     val summary: String = "",
     val note: String = "",
     val emptyMessage: String = "暂无结果",
+    val parent: ResultPage? = null,
+    val historyView: Boolean = false,
+    val historyFrom: Long = 0,
+    val historyTo: Long = 0,
+    val historyIncoming: Boolean = false,
+    val historyCount: Long = -1,
 )
+
+private fun formatTime(time: Long): String =
+    if (time <= 0) "未知" else SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA).format(Date(time))
+
+private fun commandName(action: String): String = when (action) {
+    "shell" -> "执行 Shell 指令"
+    "get_status" -> "查询设备状态"
+    "get_installed_apps" -> "查询应用列表"
+    "get_recent_apps" -> "查询应用使用情况"
+    "get_notifications" -> "查询通知列表"
+    "get_media" -> "查询媒体播放"
+    "send_notification" -> "发送系统通知"
+    "set_app_suspended" -> "暂停／恢复应用"
+    else -> action.ifBlank { "未知指令" }
+}
+
+private fun recordStatus(item: JSONObject): String {
+    val result = item.optJSONObject("result") ?: JSONObject()
+    return when (item.optString("status")) {
+        "completed" -> when {
+            result.optBoolean("cancelled") -> "已取消"
+            result.optBoolean("timed_out") -> "执行超时"
+            result.has("exit_code") && result.optInt("exit_code") != 0 -> "执行结束（非零退出码）"
+            else -> "已完成"
+        }
+        "failed" -> "失败／被拒绝"
+        "offline" -> "对方离线，未执行"
+        "uncertain" -> "执行情况未确认"
+        "running" -> "处理中／结果尚未确认"
+        "pending" -> "等待处理／结果尚未确认"
+        else -> "结果未确认"
+    }
+}
+
+private fun requestedShell(params: JSONObject): String = when {
+    params.optBoolean("root") && params.optBoolean("shizuku") -> "root 与 Shizuku 同时请求（无效）"
+    params.optBoolean("root") -> "root"
+    params.optBoolean("shizuku") -> "Shizuku / Sui"
+    else -> "普通应用权限"
+}
+
+private fun executionIdentity(backend: String, uid: Int): String = when (backend) {
+    "app" -> "普通应用权限"
+    "root" -> "root"
+    "dhizuku" -> "Dhizuku"
+    "shizuku" -> "Shizuku / Sui" + when (uid) {
+        0 -> " · root 身份（UID 0）"
+        2000 -> " · Shell 身份（UID 2000）"
+        in 1..Int.MAX_VALUE -> "（UID $uid）"
+        else -> "（身份未确认）"
+    }
+    else -> "执行权限未确认"
+}
+
+private fun recordCard(item: JSONObject): ResultCard {
+    val kind = item.optString("kind")
+    if (kind == "event" || kind == "legacy") {
+        val text = item.optString("message")
+        val time = if (kind == "legacy") "旧版记录，时间见正文" else timestamp(item, "at")
+        return ResultCard(if (kind == "legacy") "旧版记录" else "连接与运行记录", time,
+            body = text.take(140) + if (text.length > 140) "…" else "",
+            detailFields = listOf("记录时间" to time), detailBody = text)
+    }
+    val action = item.optString("action")
+    val params = item.optJSONObject("params") ?: JSONObject()
+    val result = item.optJSONObject("result") ?: JSONObject()
+    val direction = if (kind == "incoming") "对方 → 本机" else "本机 → 对方"
+    val title = if (action == "set_app_suspended") {
+        if (params.optBoolean("suspended")) "暂停应用" else "恢复应用"
+    } else commandName(action)
+    val details = mutableListOf(
+        "记录时间" to timestamp(item, "at"),
+        "指令方向" to direction,
+        "发送方 ID" to item.optString("sender_id"),
+        "接收方 ID" to item.optString("target_id"),
+        "服务器" to item.optString("server"),
+        "指令 ID" to item.optString("command_id").ifBlank { "尚未取得" },
+        "处理结果" to recordStatus(item),
+    )
+    if (action == "shell") {
+        details += "Shell 指令" to params.optString("command").ifBlank { "未记录" }
+        details += "请求权限" to requestedShell(params)
+        // Do not mistake the request flags for the receiving device's execution report.
+        val identity = if (result.has("backend")) executionIdentity(result.optString("backend"), result.optInt("shizuku_uid", -1))
+            else "未执行或实际权限尚未确认"
+        details += "执行方式（对方返回）" to identity
+        if (item.has("actual_backend") && !result.has("backend"))
+            details += "尝试使用的执行通道" to executionIdentity(item.optString("actual_backend"), item.optInt("execution_uid", -1))
+        details += "超时设置" to "${params.optInt("timeout_seconds", 20)} 秒"
+        if (result.has("exit_code")) details += "退出码" to result.optInt("exit_code").toString()
+        if (result.has("timed_out")) details += "是否超时" to if (result.optBoolean("timed_out")) "是" else "否"
+        if (result.has("cancelled")) details += "是否取消" to if (result.optBoolean("cancelled")) "是" else "否"
+    } else {
+        if (item.has("actual_backend")) details += "执行方式" to executionIdentity(item.optString("actual_backend"), item.optInt("execution_uid", -1))
+        if (params.has("package_name")) details += "应用包名" to params.optString("package_name")
+        if (result.has("app_name")) details += "应用名" to appName(result)
+        if (result.has("suspended")) details += "当前暂停状态" to if (result.optBoolean("suspended")) "已暂停" else "未暂停"
+        if (params.has("hours")) details += "查询范围" to "${params.optInt("hours")} 小时"
+        if (params.has("title")) details += "通知标题" to params.optString("title")
+        if (params.has("content")) details += "通知内容" to params.optString("content")
+    }
+    if (item.has("started_at")) details += "开始处理时间" to timestamp(item, "started_at")
+    if (item.has("finished_at") && item.optString("status") != "pending") details += "处理结束时间" to timestamp(item, "finished_at")
+    if (item.has("delivery")) details += "结果回传" to item.optString("delivery")
+    val body = buildString {
+        if (item.optString("error").isNotBlank()) append("失败原因：\n${item.optString("error")}\n\n")
+        if (item.optString("delivery_error").isNotBlank()) append("回传失败：\n${item.optString("delivery_error")}\n\n")
+        if (result.has("stdout")) append("标准输出：\n${result.optString("stdout").ifBlank { "（空）" }}\n\n")
+        if (result.has("stderr")) append("错误输出：\n${result.optString("stderr").ifBlank { "（空）" }}\n\n")
+        if (result.optString("note").isNotBlank()) append(result.optString("note") + "\n")
+        if (result.optBoolean("history_truncated") || result.optBoolean("truncated")) append("部分输出已截断。")
+    }.trim()
+    return ResultCard(title, timestamp(item, "at"), listOf("方向" to direction, "结果" to recordStatus(item)),
+        body = if (action == "shell") params.optString("command").take(100) else "点按查看详情",
+        detailFields = details, detailBody = body)
+}
 
 private fun displayAppName(name: String, packageName: String): String =
     name.trim().takeUnless { it.isEmpty() || it == packageName.trim() } ?: "棍母"
@@ -640,7 +791,7 @@ private fun queryPage(action: String, result: JSONObject, device: String): Resul
 }
 
 @Composable
-private fun ResultScreen(page: ResultPage, onBack: () -> Unit) {
+private fun ResultScreen(activity: MainActivity, ui: UiState, page: ResultPage, onBack: () -> Unit) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -666,11 +817,24 @@ private fun ResultScreen(page: ResultPage, onBack: () -> Unit) {
                     if (page.summary.isNotBlank()) Text(page.summary, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
+            if (page.historyView) {
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TextButton("刷新记录", activity::refreshRecords, Modifier.weight(1f), enabled = !ui.busy)
+                        TextButton("清除记录", activity::clearLogs, Modifier.weight(1f), enabled = !ui.busy)
+                    }
+                }
+            }
             if (page.cards.isEmpty()) {
                 item { Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) { Text(page.emptyMessage) } }
             }
             items(page.cards) { card ->
-                Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
+                val clickable = if (card.detailFields != null) Modifier.clickable(enabled = !ui.busy) {
+                    ui.resultPage = ResultPage("记录详情", page.device,
+                        listOf(card.copy(fields = card.detailFields, body = card.detailBody, detailFields = null, detailBody = "")),
+                        parent = page)
+                } else Modifier
+                Card(Modifier.fillMaxWidth().then(clickable), insideMargin = PaddingValues(20.dp)) {
                     SelectionContainer {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(card.title, style = MiuixTheme.textStyles.title2, color = MiuixTheme.colorScheme.primary)
@@ -690,6 +854,7 @@ private fun ResultScreen(page: ResultPage, onBack: () -> Unit) {
                 item { Text(page.note, Modifier.padding(horizontal = 8.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
             }
         }
+        UiDialogs(ui)
     }
 }
 
@@ -792,7 +957,3 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         UiDialogs(ui)
     }
 }
-
-
-
-

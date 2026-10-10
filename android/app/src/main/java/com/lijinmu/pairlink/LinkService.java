@@ -136,13 +136,17 @@ public final class LinkService extends Service {
             if (!Config.sharing(this) || !Config.peer(this).equals(command.optString("sender_id")) || !Config.own(this).equals(command.optString("target_id"))) {
                 tasks.execute(() -> returnResult(id, null, "共享关闭或发送方不匹配")); return;
             }
-            if (!busy.compareAndSet(false, true)) { tasks.execute(() -> returnResult(id, null, "已有任务正在执行")); return; }
+            if (!CommandHistory.beginIncoming(this, base, command)) return;
+            if (!busy.compareAndSet(false, true)) {
+                CommandHistory.finish(this, CommandHistory.incomingId(base, id), id, "failed", null, "已有任务正在执行，未执行此指令");
+                tasks.execute(() -> returnResult(id, null, "已有任务正在执行")); return;
+            }
             tasks.execute(() -> execute(command));
         } catch (Exception e) { Config.log(this, "收到无效消息"); }
     }
     private void execute(JSONObject c) {
         String id = c.optString("command_id"), action = c.optString("action");
-        Config.log(this, "收到指令：" + action);
+        String record = CommandHistory.incomingId(base, id);
         try {
             if (!Config.sharing(this)) throw new Exception("共享已关闭");
             if (System.currentTimeMillis() >= c.getLong("deadline_at")) throw new Exception("指令已经过期");
@@ -150,17 +154,19 @@ public final class LinkService extends Service {
             if (params == null) params = new JSONObject();
             JSONObject result;
             switch (action) {
-                case "get_status": result = DeviceQueries.status(this); break;
-                case "get_installed_apps": result = DeviceQueries.installedApps(this); break;
+                case "get_status": CommandHistory.started(this, record, "app", -1); result = DeviceQueries.status(this); break;
+                case "get_installed_apps": CommandHistory.started(this, record, "app", -1); result = DeviceQueries.installedApps(this); break;
                 case "send_notification":
                     if (!Config.prefs(this).getBoolean("send_notifications", false)) throw new Exception("对方未开启发送普通通知");
+                    CommandHistory.started(this, record, "app", -1);
                     result = NotificationSender.send(this, params.optString("title"), params.optString("content")); break;
                 case "get_recent_apps":
                     int hours = params.optInt("hours", 1);
                     if (hours < 1 || hours > 24) throw new Exception("查询范围无效");
+                    CommandHistory.started(this, record, "app", -1);
                     result = DeviceQueries.recent(this, hours); break;
-                case "get_media": result = MediaQueries.current(this); break;
-                case "get_notifications": result = NotificationReaderService.current(this); break;
+                case "get_media": CommandHistory.started(this, record, "app", -1); result = MediaQueries.current(this); break;
+                case "get_notifications": CommandHistory.started(this, record, "app", -1); result = NotificationReaderService.current(this); break;
                 case "set_app_suspended":
                     if (!(params.opt("suspended") instanceof Boolean)) throw new Exception("暂停参数无效");
                     String pkg = params.getString("package_name");
@@ -170,6 +176,7 @@ public final class LinkService extends Service {
                     executingAppControl = true;
                     executingRoot = "root".equals(backend);
                     executingShizuku = "shizuku".equals(backend);
+                    CommandHistory.started(this, record, backend, "shizuku".equals(backend) ? ShizukuBridge.uid() : -1);
                     result = AppControl.set(this, pkg, suspended, false, runner); break;
                 case "shell":
                     boolean root = params.optBoolean("root", false);
@@ -184,6 +191,7 @@ public final class LinkService extends Service {
                     executingRoot = root;
                     executingShizuku = shizuku;
                     int shizukuUid = shizuku ? ShizukuBridge.uid() : -1;
+                    CommandHistory.started(this, record, shizuku ? "shizuku" : root ? "root" : "app", shizukuUid);
                     ShellRunner.Result r = shizuku
                         ? ShizukuBridge.run(this, script, seconds, () -> Config.shell(this) && Config.shizuku(this))
                         : runner.run(script, root, seconds, () -> root ? Config.root(this) : Config.shell(this));
@@ -200,13 +208,13 @@ public final class LinkService extends Service {
             }
             if ("get_media".equals(action)) MediaQueries.checkAllowed(this);
             if ("get_notifications".equals(action)) NotificationReaderService.checkAllowed(this);
+            CommandHistory.finish(this, record, id, "completed", result, null);
             returnResult(id, result, null);
-            Config.log(this, "指令处理完成：" + action);
         } catch (Exception e) {
             String message = e.getMessage();
             if (message == null || message.trim().isEmpty()) message = e.getClass().getSimpleName();
+            CommandHistory.finish(this, record, id, "failed", null, message);
             returnResult(id, null, message);
-            Config.log(this, "指令失败：" + message);
         }
         finally { executingRoot = false; executingShizuku = false; executingAppControl = false; executingAppBackend = null; busy.set(false); }
     }
@@ -215,7 +223,8 @@ public final class LinkService extends Service {
             JSONObject body = new JSONObject().put("device_id", Config.own(this)).put("command_id", id).put("ok", error == null);
             if (error == null) body.put("result", result); else body.put("error", error);
             Net.request(this, base, "/api/device/result", body);
-        } catch (Exception e) { Config.log(this, "结果回传失败：" + e.getMessage()); }
+            CommandHistory.delivery(this, CommandHistory.incomingId(base, id), true, null);
+        } catch (Exception e) { CommandHistory.delivery(this, CommandHistory.incomingId(base, id), false, e.getMessage()); }
     }
     @Override public void onDestroy() {
         destroyed = true; generation++; handler.removeCallbacksAndMessages(null);
@@ -226,5 +235,3 @@ public final class LinkService extends Service {
     }
     @Override public IBinder onBind(Intent intent) { return null; }
 }
-
-

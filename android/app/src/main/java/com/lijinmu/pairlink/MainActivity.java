@@ -73,6 +73,8 @@ public final class MainActivity extends ComponentActivity {
         refreshState();
         Config.prefs(this).registerOnSharedPreferenceChangeListener(preferenceListener);
         PairLinkUi.render(this, ui);
+        CommandSummaryWorker.ensureScheduled(this);
+        openHistoryIntent(getIntent());
         if (b == null && Config.prefs(this).getBoolean("love_egg_pending", false)) {
             Config.prefs(this).edit().remove("love_egg_pending").apply();
             Toast.makeText(this, "I LOVE U , Starry Sky\u2067", Toast.LENGTH_LONG).show();
@@ -105,6 +107,8 @@ public final class MainActivity extends ComponentActivity {
         SharedPreferences prefs = Config.prefs(this);
         ui.setServerVersion(Config.server(this).equals(prefs.getString("server_version_url", ""))
             ? prefs.getString("server_version", "未获取，点击刷新") : "未获取，点击刷新");
+        ui.setCommandSummary(CommandSummaryWorker.enabled(this));
+        ui.setSummaryMinutes(CommandSummaryWorker.interval(this));
         ui.setNightMode(Config.nightMode(this));
         ui.setDhizuku(Config.prefs(this).getBoolean("dhizuku", false));
         ui.setSharing(Config.sharing(this));
@@ -118,6 +122,15 @@ public final class MainActivity extends ComponentActivity {
         ui.setAppControlMode(AppControl.mode(this));
         ui.setPauseBlacklistCount(Config.pauseBlacklist(this).size());
         ui.setConnection(Config.sharing(this) ? Config.prefs(this).getString("connection", "正在连接") : "共享已关闭");
+    }
+    public void changeCommandSummary(boolean checked) {
+        if (checked && !ensureNotificationPermission("command_summary", CommandSummaryWorker.CHANNEL_ID)) return;
+        try { CommandSummaryWorker.setEnabled(this, checked); refreshState(); }
+        catch (Exception e) { ui.message("指令定时通知", "无法设置后台任务：" + e.getMessage()); }
+    }
+    public void selectSummaryInterval(int minutes) {
+        try { CommandSummaryWorker.changeInterval(this, minutes); refreshState(); }
+        catch (Exception e) { ui.message("指令定时通知", "无法更新通知间隔：" + e.getMessage()); }
     }
     public void changeStatusNotification(boolean checked) {
         if (checked && !ensureNotificationPermission("status_notification", "connection")) return;
@@ -135,6 +148,7 @@ public final class MainActivity extends ComponentActivity {
     }
     private boolean ensureNotificationPermission(String setting, String channelId) {
         if ("connection".equals(channelId)) LinkService.createConnectionChannel(this);
+        else if (CommandSummaryWorker.CHANNEL_ID.equals(channelId)) CommandSummaryWorker.createChannel(this);
         else NotificationSender.createMessageChannel(this);
         if (notificationAllowed(channelId)) return true;
         NotificationManager manager = getSystemService(NotificationManager.class);
@@ -143,7 +157,7 @@ public final class MainActivity extends ComponentActivity {
         Intent intent = new Intent(appAllowed ? Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS : Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
         if (appAllowed) intent.putExtra(Settings.EXTRA_CHANNEL_ID, channelId);
-        return guidePermission(setting, "需要允许 PairLink 的" + (appAllowed ? ("connection".equals(channelId) ? "共享连接通知" : "消息通知") : "系统通知权限"), intent);
+        return guidePermission(setting, "需要允许 PairLink 的" + (appAllowed ? ("connection".equals(channelId) ? "共享连接通知" : CommandSummaryWorker.CHANNEL_ID.equals(channelId) ? "指令定时汇总通知" : "消息通知") : "系统通知权限"), intent);
     }
     private boolean ensureNotificationAccess(String setting) {
         if (NotificationReaderService.hasAccess(this)) return true;
@@ -173,9 +187,11 @@ public final class MainActivity extends ComponentActivity {
         permissionSettingsOpened = false;
         boolean granted = ("notifications".equals(setting) || "media".equals(setting))
             ? NotificationReaderService.hasAccess(this)
-            : notificationAllowed("send_notifications".equals(setting) ? NotificationSender.CHANNEL_ID : "connection");
+            : notificationAllowed("send_notifications".equals(setting) ? NotificationSender.CHANNEL_ID
+                : "command_summary".equals(setting) ? CommandSummaryWorker.CHANNEL_ID : "connection");
         if (!granted) { permissionToast("所需权限尚未授予，开关保持关闭"); return; }
         switch (setting) {
+            case "command_summary": changeCommandSummary(true); break;
             case "status_notification": changeStatusNotification(true); break;
             case "send_notifications": changeSendNotifications(true); break;
             case "notifications": changeNotifications(true); break;
@@ -425,7 +441,6 @@ public final class MainActivity extends ComponentActivity {
                             stopped = "上一项状态未确认，后续应用未执行。请检查后再操作";
                             item.put("status", "uncertain").put("error", "请求超时或仍在执行，指令 ID：" + response.optString("command_id") + "。请勿直接重复提交");
                         }
-                        Config.log(this, (suspended ? "暂停 " : "恢复 ") + pkg + "：" + item.optString("status"));
                     } catch (Exception e) {
                         stopped = "请求中断，后续应用未执行。请检查对方状态后再操作";
                         item.put("status", "uncertain").put("error", "请求失败：" + e.getMessage() + "。该应用可能已经执行，请勿直接重复提交");
@@ -558,13 +573,54 @@ public final class MainActivity extends ComponentActivity {
             catch (Exception e) { show(e.getMessage()); }
         });
     }
-    public void showLogs() {
-        String logs = Config.prefs(this).getString("logs", "");
-        ui.showRecords(logs, Config.own(this));
+    public void showLogs() { showHistory(0, System.currentTimeMillis(), false, -1); }
+    public void refreshRecords() {
+        ResultPage page = ui.getResultPage();
+        if (page != null && page.getHistoryIncoming())
+            showHistory(page.getHistoryFrom(), page.getHistoryTo(), true, page.getHistoryCount());
+        else showLogs();
+    }
+    private void showHistory(long from, long to, boolean incomingOnly, long count) {
+        if (busy) { toast("请等待当前请求完成"); return; }
+        busy = true; ui.setBusy(true); show("正在读取本机记录……");
+        network.execute(() -> {
+            try {
+                JSONArray records = CommandHistory.records(this, from, to, incomingOnly);
+                String own = Config.own(this);
+                runOnUiThread(() -> {
+                    if (!isDestroyed()) ui.showRecords(records, own, from, to, incomingOnly, count);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> { if (!isDestroyed()) ui.message("本机记录", "读取记录失败：" + e.getMessage()); });
+            } finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
+        });
+    }
+    private void openHistoryIntent(Intent intent) {
+        if (isDestroyed() || intent == null || !CommandSummaryWorker.OPEN_HISTORY.equals(intent.getAction())) return;
+        if (busy) { permissionHandler.postDelayed(() -> openHistoryIntent(intent), 500); return; }
+        long now = System.currentTimeMillis();
+        long to = Math.min(now, intent.getLongExtra(CommandSummaryWorker.TO, now));
+        long from = Math.max(0, Math.min(to, intent.getLongExtra(CommandSummaryWorker.FROM, 0)));
+        intent.setAction(null); // Returning from settings must not reopen this snapshot.
+        ui.clearAppPicker();
+        showHistory(from, to, true, Math.max(0, intent.getLongExtra(CommandSummaryWorker.COUNT, 0)));
+    }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        openHistoryIntent(intent);
     }
     public void clearLogs() {
-        Config.clearLogs(this);
-        ui.message("本机记录", "记录已清除");
+        if (busy) { toast("请等待当前请求完成"); return; }
+        ui.confirm("清除本机记录", "清除连接与执行记录，并重新开始定时通知的统计。", "清除", () -> {
+            try {
+                synchronized (CommandSummaryWorker.class) {
+                    Config.clearLogs(this);
+                    CommandSummaryWorker.restartWindow(this);
+                }
+                showLogs();
+            } catch (Exception e) { ui.message("本机记录", "清除失败：" + e.getMessage()); }
+        });
     }
     private void authorizeRoot() {
         network.execute(() -> {
@@ -598,7 +654,9 @@ public final class MainActivity extends ComponentActivity {
             okhttp3.HttpUrl url = okhttp3.HttpUrl.get(s);
             if (!"https".equals(url.scheme()) || !url.encodedPath().equals("/") || url.query() != null || url.fragment() != null
                 || !url.username().isEmpty() || !url.password().isEmpty() || !Config.validId(a) || !Config.validId(b) || a.equals(b)) throw new Exception();
+            boolean connectionChanged = !s.equals(Config.server(this)) || !a.equals(Config.own(this)) || !b.equals(Config.peer(this));
             Config.prefs(this).edit().putString("server", s).putString("own", a).putString("peer", b).apply();
+            if (connectionChanged) CommandSummaryWorker.restartWindow(this);
             ui.clearAppPicker();
             toast("已保存");
         } catch (Exception e) { toast("填写服务器 HTTPS 根地址；双方 ID 必须不同，只含字母、数字、点、下划线或连字符"); }
@@ -607,16 +665,26 @@ public final class MainActivity extends ComponentActivity {
         send(action, params, false);
     }
     private JSONObject requestCommand(String base, String sender, String target, String action, JSONObject params) throws Exception {
-        JSONObject body = new JSONObject().put("sender_id", sender).put("target_id", target).put("action", action).put("params", params);
-        JSONObject response = Net.request(this, base, "/api/commands", body);
-        String id = response.optString("command_id");
-        if ("pending".equals(response.optString("status")) && id.isEmpty()) throw new Exception("服务器未返回指令 ID");
-        long deadline = SystemClock.elapsedRealtime() + 50000;
-        while ("pending".equals(response.optString("status")) && SystemClock.elapsedRealtime() < deadline) {
-            Thread.sleep(1000);
-            response = Net.request(this, base, "/api/commands/" + id, null);
+        String record = CommandHistory.beginOutgoing(this, base, sender, target, action, params);
+        String id = "";
+        try {
+            JSONObject body = new JSONObject().put("sender_id", sender).put("target_id", target).put("action", action).put("params", params);
+            JSONObject response = Net.request(this, base, "/api/commands", body);
+            id = response.optString("command_id");
+            if ("pending".equals(response.optString("status")) && id.isEmpty()) throw new Exception("服务器未返回指令 ID");
+            CommandHistory.finish(this, record, id, response.optString("status"), response.optJSONObject("result"), response.optString("error"));
+            long deadline = SystemClock.elapsedRealtime() + 50000;
+            while ("pending".equals(response.optString("status")) && SystemClock.elapsedRealtime() < deadline) {
+                Thread.sleep(1000);
+                response = Net.request(this, base, "/api/commands/" + id, null);
+            }
+            String status = response.optString("status");
+            CommandHistory.finish(this, record, id, "pending".equals(status) ? "uncertain" : status, response.optJSONObject("result"), response.optString("error"));
+            return response;
+        } catch (Exception e) {
+            CommandHistory.finish(this, record, id, "uncertain", null, "请求中断，执行情况未确认：" + e.getMessage());
+            throw e;
         }
-        return response;
     }
     private void send(String action, JSONObject params, boolean chooseApps) {
         if (busy) { toast("请等待当前请求完成"); return; }
@@ -641,7 +709,6 @@ public final class MainActivity extends ComponentActivity {
                     JSONObject result = response.getJSONObject("result");
                     runOnUiThread(() -> { if (!isDestroyed()) ui.showQuery(action, result, target); });
                 } else show(format(action, response));
-                Config.log(this, "请求 " + action + "：" + response.optString("status"));
             } catch (Exception e) { show("请求失败：" + e.getMessage() + ("shell".equals(action) ? "\n不要自动重发 Shell，命令可能已经执行。" : "")); }
             finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
         });
@@ -691,6 +758,3 @@ public final class MainActivity extends ComponentActivity {
         network.shutdown(); super.onDestroy();
     }
 }
-
-
-

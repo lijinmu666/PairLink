@@ -39,12 +39,9 @@ final class Config {
         return s;
     }
     static synchronized void clearLogs(Context c) {
-        prefs(c).edit().remove("logs").apply();
+        CommandHistory.clear(c);
     }
     static synchronized void log(Context c, String text) {
-        String old = prefs(c).getString("logs", "");
-        String next = new java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.CHINA).format(new java.util.Date()) + " " + text + "\n" + old;
-        prefs(c).edit().putString("logs", next.substring(0, Math.min(12000, next.length()))).apply();
+        CommandHistory.event(c, text);
     }
 }
-

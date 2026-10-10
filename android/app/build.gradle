@@ -22,6 +22,7 @@ android {
     buildFeatures { compose true; aidl true }
 }
 dependencies {
+    implementation 'androidx.work:work-runtime:2.11.2'
     implementation 'io.github.iamr0s:Dhizuku-API:2.6.0'
     implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:6.1'
     implementation 'dev.rikka.shizuku:api:13.1.5'

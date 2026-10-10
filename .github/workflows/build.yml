@@ -24,6 +24,8 @@ jobs:
           mkdir -p /tmp/pairlink-shell-tests
           javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/ShellRunner.java android/test/ShellRunnerTest.java
           java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.ShellRunnerTest
+          javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/SummaryWindow.java android/test/SummaryWindowTest.java
+          java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.SummaryWindowTest
       - run: gradle --no-daemon -p android assembleDebug lintDebug
       - uses: actions/upload-artifact@v4
         with:
