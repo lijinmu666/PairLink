@@ -81,11 +81,15 @@ class UiState {
             val item = array.optJSONObject(index) ?: return@mapNotNull null
             val pkg = item.optString("package_name")
             if (pkg.length > 255 || !AppControl.PACKAGE.matcher(pkg).matches()) return@mapNotNull null
-            PeerApp(pkg, displayAppName(item.optString("app_name"), pkg), pkg == protectedPackage)
+            PeerApp(pkg, displayAppName(item.optString("app_name"), pkg), pkg == protectedPackage,
+                pausedByPairLink = item.optBoolean("paused_by_pairlink"))
         }.distinctBy { it.packageName }.sortedWith(compareBy<PeerApp> { it.name.lowercase(Locale.ROOT) }.thenBy { it.packageName })
         val old = appPicker
-        val sameDevice = old != null && old.server == server && old.sender == sender && old.device == device
-        selectedPeerApps = if (sameDevice) selectedPeerApps.intersect(apps.filterNot { it.protectedApp }.map { it.packageName }.toSet()) else emptySet()
+        val sameDevice = old != null && !old.blacklist && old.server == server && old.sender == sender && old.device == device
+        val selectable = apps.filterNot { it.protectedApp }.map { it.packageName }.toSet()
+        val paused = apps.filter { it.pausedByPairLink && !it.protectedApp }.map { it.packageName }.toSet()
+        val previouslyPaused = old?.apps?.filter { it.pausedByPairLink }?.map { it.packageName }?.toSet().orEmpty()
+        selectedPeerApps = if (sameDevice) (selectedPeerApps + (paused - previouslyPaused)).intersect(selectable) else paused
         if (!sameDevice) appSearch = ""
         appPicker = AppPickerPage(server, sender, device, apps, result.optBoolean("truncated"))
         resultPage = null
@@ -705,7 +709,7 @@ private val BackArrow: ImageVector by lazy {
 }
 
 
-data class PeerApp(val packageName: String, val name: String, val protectedApp: Boolean, val installed: Boolean = true)
+data class PeerApp(val packageName: String, val name: String, val protectedApp: Boolean, val installed: Boolean = true, val pausedByPairLink: Boolean = false)
 data class AppPickerPage(val server: String, val sender: String, val device: String, val apps: List<PeerApp>, val truncated: Boolean, val blacklist: Boolean = false)
 
 @Composable
@@ -754,7 +758,7 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
                     Card(Modifier.fillMaxWidth()) {
                         CheckboxPreference(
                             title = app.name,
-                            summary = app.packageName + (if (app.protectedApp) "\nPairLink 本身已受保护" else "") + (if (!app.installed) "\n未安装，保留原黑名单记录" else ""),
+                            summary = app.packageName + (if (app.protectedApp) "\nPairLink 本身已受保护" else "") + (if (app.pausedByPairLink) "\n由 PairLink 暂停" else "") + (if (!app.installed) "\n未安装，保留原黑名单记录" else ""),
                             checked = app.packageName in ui.selectedPeerApps,
                             onCheckedChange = { checked ->
                                 ui.selectedPeerApps = if (checked) ui.selectedPeerApps + app.packageName else ui.selectedPeerApps - app.packageName
@@ -779,6 +783,7 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         UiDialogs(ui)
     }
 }
+
 
 
 

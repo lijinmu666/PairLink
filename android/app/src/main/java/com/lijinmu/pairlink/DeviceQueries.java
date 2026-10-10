@@ -94,17 +94,23 @@ final class DeviceQueries {
     }
     static JSONObject installedApps(Context c) throws Exception {
         JSONArray apps = new JSONArray();
+        Set<String> tracked = new HashSet<>(AppControl.tracked(c));
         List<ApplicationInfo> installed = c.getPackageManager().getInstalledApplications(PackageManager.GET_META_DATA);
-        installed.sort((a, b) -> a.packageName.compareToIgnoreCase(b.packageName));
+        installed.sort(Comparator.comparing((ApplicationInfo app) -> !pausedByPairLink(app, tracked))
+            .thenComparing(app -> app.packageName, String.CASE_INSENSITIVE_ORDER));
         boolean truncated = false;
         for (ApplicationInfo app : installed) {
             if ((app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
             String name;
             try { name = c.getPackageManager().getApplicationLabel(app).toString(); } catch (Exception e) { name = app.packageName; }
-            apps.put(new JSONObject().put("package_name", app.packageName).put("app_name", name));
+            apps.put(new JSONObject().put("package_name", app.packageName).put("app_name", name)
+                .put("paused_by_pairlink", pausedByPairLink(app, tracked)));
             if (apps.toString().length() > 44000) { apps.remove(apps.length() - 1); truncated = true; break; }
         }
         return new JSONObject().put("apps", apps).put("count", apps.length()).put("truncated", truncated).put("queried_at", System.currentTimeMillis());
+    }
+    private static boolean pausedByPairLink(ApplicationInfo app, Set<String> tracked) {
+        return tracked.contains(app.packageName) && (app.flags & ApplicationInfo.FLAG_SUSPENDED) != 0;
     }
     static JSONObject recent(Context c, int hours) throws Exception {
         if (!usageAllowed(c)) throw new Exception("对方尚未开启使用情况访问权限");
@@ -200,3 +206,4 @@ final class UsageDurationTracker {
     }
     void finish() { advance(end); }
 }
+
