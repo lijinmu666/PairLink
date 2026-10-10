@@ -394,6 +394,12 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
                                     onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
                                 )
+                                Text(
+                                    "恢复应用需使用暂停时的权限方式；Shizuku / Sui 还需保持原来的启动身份。",
+                                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    style = MiuixTheme.textStyles.footnote1,
+                                )
                                 SwitchPreference(title = "允许对方查看通知列表", summary = if (ui.notificationAccess) "查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
                                 SwitchPreference(title = "允许对方查看媒体播放", summary = if (ui.notificationAccess) "查询系统媒体面板的曲目和播放状态" else "需要授予系统通知访问权限", checked = ui.media, onCheckedChange = activity::changeMedia)
                                 SwitchPreference(title = "允许对方发送系统通知", summary = "发送普通通知", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
