@@ -43,6 +43,8 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 class UiState {
     var server by mutableStateOf("")
+    var serverVersion by mutableStateOf("未获取，点击刷新")
+    var serverVersionLoading by mutableStateOf(false)
     var own by mutableStateOf("")
     var peer by mutableStateOf("")
     var script by mutableStateOf("")
@@ -272,7 +274,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                             }
                         }
                         item {
-                            Section("本机信息") {
+                            Card(Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                     OverviewField("设备型号", listOf(Build.BRAND.trim(), Build.MODEL.trim()).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "未知" })
                                     OverviewField("安卓版本", Build.VERSION.RELEASE)
@@ -287,12 +289,13 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                         Text("客户端版本号", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
                                         Text(version)
                                     }
-                                }
-                            }
-                        }
-                        item {
-                            Section("设备 ID") {
-                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().clickable(enabled = !ui.busy, onClick = activity::refreshServerVersion),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text("服务端版本号", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
+                                        Text(if (ui.serverVersionLoading) "正在刷新……" else ui.serverVersion, color = MiuixTheme.colorScheme.primary)
+                                    }
                                     OverviewField("本机 ID", ui.own.ifBlank { "未设置" })
                                     OverviewField("对方 ID", ui.peer.ifBlank { "未设置" })
                                 }

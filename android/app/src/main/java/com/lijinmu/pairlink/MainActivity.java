@@ -102,6 +102,9 @@ public final class MainActivity extends ComponentActivity {
     }
     private void refreshState() {
         refreshAccessPermissions();
+        SharedPreferences prefs = Config.prefs(this);
+        ui.setServerVersion(Config.server(this).equals(prefs.getString("server_version_url", ""))
+            ? prefs.getString("server_version", "未获取，点击刷新") : "未获取，点击刷新");
         ui.setNightMode(Config.nightMode(this));
         ui.setDhizuku(Config.prefs(this).getBoolean("dhizuku", false));
         ui.setSharing(Config.sharing(this));
@@ -467,13 +470,44 @@ public final class MainActivity extends ComponentActivity {
         });
     }
     public void usagePermission() { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); }
-    public void testConnection() {
+    public void testConnection() { checkServerHealth(true); }
+    public void refreshServerVersion() { checkServerHealth(false); }
+    private void checkServerHealth(boolean testConnection) {
         if (busy) { toast("请等待当前请求完成"); return; }
-        busy = true; ui.setBusy(true); show("正在测试服务器连接……");
+        String base = Config.server(this);
+        busy = true;
+        ui.setBusy(true);
+        ui.setServerVersionLoading(true);
+        if (testConnection) show("正在测试服务器连接……");
         network.execute(() -> {
-            try { JSONObject r = Net.request(this, Config.server(this), "/health", null); show("服务器连接成功\n" + r.toString(2) + "\n接收指令需要开启共享并显示在线。"); }
-            catch (Exception e) { show("连接失败：" + e.getMessage()); }
-            finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
+            try {
+                JSONObject response = Net.request(this, base, "/health", null);
+                Object rawVersion = response.opt("version");
+                String version = rawVersion instanceof String ? ((String) rawVersion).trim() : "";
+                String displayedVersion = version.isEmpty() ? "未提供版本号" : version;
+                String resultText = testConnection ? "服务器连接成功\n" + response.toString(2)
+                    + "\n接收指令需要开启共享并显示在线。" : "";
+                runOnUiThread(() -> {
+                    if (isDestroyed() || !base.equals(Config.server(this))) return;
+                    Config.prefs(this).edit().putString("server_version_url", base)
+                        .putString("server_version", displayedVersion).apply();
+                    ui.setServerVersion(displayedVersion);
+                    if (testConnection) ui.showResult(resultText);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (isDestroyed() || !base.equals(Config.server(this))) return;
+                    if (testConnection) ui.showResult("连接失败：" + e.getMessage());
+                    else ui.message("服务端版本号", "刷新失败：" + e.getMessage());
+                });
+            } finally {
+                runOnUiThread(() -> {
+                    busy = false;
+                    if (isDestroyed()) return;
+                    ui.setServerVersionLoading(false);
+                    ui.setBusy(false);
+                });
+            }
         });
     }
     public void queryStatus() { send("get_status", new JSONObject()); }
