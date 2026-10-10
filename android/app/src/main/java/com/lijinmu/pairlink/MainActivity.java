@@ -228,7 +228,16 @@ public final class MainActivity extends ComponentActivity {
         Config.prefs(this).edit().putString("night_mode", mode).apply();
         refreshState();
     }
-    public void selectAppControlMode(String mode) { requestPrivilegeMode(mode, false); }
+    public void selectAppControlMode(String mode) {
+        if (!"root".equals(mode)) { requestPrivilegeMode(mode, false); return; }
+        if (busy || awaitingDhizuku || awaitingShizukuMode || awaitingShizuku) {
+            toast("请先完成当前请求或授权"); return;
+        }
+        ui.confirm("root 权限危险警告",
+            "root 权限可修改系统和应用数据。使用不当可能造成数据丢失、系统损坏或设备无法正常启动等严重后果。\n\n"
+                + "你已被警告，请确认理解风险后谨慎使用。",
+            "我已知晓，继续", () -> requestPrivilegeMode("root", false));
+    }
     private void finishPrivilegeMode(String mode) {
         Config.prefs(this).edit().putString("app_control_mode", mode).apply();
         refreshState(); policy();
