@@ -233,10 +233,10 @@ public final class MainActivity extends ComponentActivity {
         if (busy || awaitingDhizuku || awaitingShizukuMode || awaitingShizuku) {
             toast("请先完成当前请求或授权"); return;
         }
-        ui.confirm("root 权限危险警告",
-            "root 权限可修改系统和应用数据。使用不当可能造成数据丢失、系统损坏或设备无法正常启动等严重后果。\n\n"
-                + "你已被警告，请确认理解风险后谨慎使用。",
-            "我已知晓，继续", () -> requestPrivilegeMode("root", false));
+        ui.confirm("警告",
+            "root 权限是系统最高权限，使用不当可能造成数据泄露、系统损坏等后果\n\n"
+                + "推荐使用 Dhizuku 或者 Shell 权限。你已被警告使用，请确认理解风险后谨慎使用",
+            "哦", () -> requestPrivilegeMode("root", false));
     }
     private void finishPrivilegeMode(String mode) {
         Config.prefs(this).edit().putString("app_control_mode", mode).apply();
@@ -601,7 +601,7 @@ public final class MainActivity extends ComponentActivity {
             Config.prefs(this).edit().putString("server", s).putString("own", a).putString("peer", b).apply();
             ui.clearAppPicker();
             toast("已保存");
-        } catch (Exception e) { toast("填写 HTTPS 根地址；双方 ID 必须不同，只含字母、数字、点、下划线或连字符"); }
+        } catch (Exception e) { toast("填写服务器 HTTPS 根地址；双方 ID 必须不同，只含字母、数字、点、下划线或连字符"); }
     }
     private void send(String action, JSONObject params) {
         send(action, params, false);
