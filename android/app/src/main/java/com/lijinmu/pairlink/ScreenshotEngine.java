@@ -14,7 +14,13 @@ final class ScreenshotEngine {
     void cancel() { commands.cancel(); }
     private String foreground(boolean root, BooleanSupplier allowed) throws Exception {
         String activities = new String(commands.run("dumpsys activity activities", root, 4, 1024 * 1024, allowed), "UTF-8");
-        String windows = new String(commands.run("dumpsys window windows", root, 4, 1024 * 1024, allowed), "UTF-8");
+        // Modern Android reports current focus in DisplayContent, not the window list.
+        String windows = new String(commands.run("dumpsys window displays", root, 4, 1024 * 1024, allowed), "UTF-8");
+        if (!ScreenshotPolicy.hasFocusField(windows)) {
+            // Older systems may still put focus in the legacy window dump.
+            // Never replace an explicit null or conflicting focus with another source.
+            windows = new String(commands.run("dumpsys window windows", root, 4, 1024 * 1024, allowed), "UTF-8");
+        }
         return ScreenshotPolicy.foreground(activities, windows);
     }
     JSONObject capture(boolean root, Set<String> blacklist, BooleanSupplier allowed) throws Exception {

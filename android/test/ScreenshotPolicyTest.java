@@ -20,6 +20,13 @@ public final class ScreenshotPolicyTest {
         rejects(() -> ScreenshotPolicy.foreground(activity("mResumedActivity", "com.example.app"), "Permission Denial"));
         rejects(() -> ScreenshotPolicy.foreground(activity("mResumedActivity", "com.example.app"), window("com.android.systemui")));
         rejects(() -> ScreenshotPolicy.foreground(activity("mResumedActivity", "com.example.app") + "\n" + activity("mResumedActivity", "com.example.secret"), window("com.example.app")));
+        check(!ScreenshotPolicy.hasFocusField("WINDOW MANAGER WINDOWS\n  mTopFocusedDisplayId=0"), "modern window list has no focus field");
+        check(ScreenshotPolicy.hasFocusField("  mCurrentFocus=null"), "explicit null must not trigger a fallback");
+        check(ScreenshotPolicy.hasFocusField(window("com.android.systemui")), "overlay focus must not trigger a fallback");
+        String displayDump = "WINDOW MANAGER DISPLAY CONTENTS\nDisplay: mDisplayId=0\n  mCurrentFocus=Window{eebdaaf u0 com.example.app/l.ۙۛۛۥ}\n  mFocusedApp=ActivityRecord{52ab378 u0 com.example.app/l.ۙۛۛۥ t129}";
+        check("com.example.app".equals(ScreenshotPolicy.foreground("topResumedActivity=ActivityRecord{52ab378 u0 com.example.app/l.ۙۛۛۥ t129}", displayDump)), "display focus and Unicode component format");
+        rejects(() -> ScreenshotPolicy.foreground(activity("mResumedActivity", "com.example.app"), displayDump + "\n" + window("com.example.secret")));
+        rejects(() -> ScreenshotPolicy.foreground(activity("mResumedActivity", "com.example.app"), "WINDOW MANAGER WINDOWS\n  mTopFocusedDisplayId=0"));
         Set<String> blacklist = Set.of("com.example.secret");
         ScreenshotPolicy.check("com.example.app", blacklist);
         rejects(() -> ScreenshotPolicy.check("com.example.secret", blacklist));

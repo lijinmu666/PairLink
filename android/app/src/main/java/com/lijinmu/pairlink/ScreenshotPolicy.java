@@ -13,7 +13,13 @@ final class ScreenshotPolicy {
     private static final Pattern RESUMED = Pattern.compile(
         "(?:topResumedActivity|mTopResumedActivity|mResumedActivity|mFocusedActivity)\\s*[:=]\\s*ActivityRecord\\{[^}\\r\\n]*?\\bu\\d+\\s+" + PKG + "/");
     private static final Pattern FOCUS = Pattern.compile("mCurrentFocus\\s*=\\s*Window\\{[^}\\r\\n]*?\\bu\\d+\\s+" + PKG + "/");
+    private static final Pattern FOCUS_FIELD = Pattern.compile("(?m)^\\s*mCurrentFocus\\s*=");
+    static boolean hasFocusField(String dump) {
+        return dump != null && FOCUS_FIELD.matcher(dump).find();
+    }
     static String foreground(String activities, String windows) throws Exception {
+        if (!hasFocusField(windows))
+            throw new Exception("系统未返回当前焦点窗口，无法确认前台应用，已拒绝截图");
         Set<String> resumed = new HashSet<>();
         Matcher a = RESUMED.matcher(activities);
         while (a.find()) resumed.add(a.group(1));
