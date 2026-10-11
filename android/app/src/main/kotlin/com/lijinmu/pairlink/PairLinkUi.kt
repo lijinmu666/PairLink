@@ -460,10 +460,8 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
             }
             item {
                 Section("执行 Shell 指令") {
-                    Column(Modifier.padding(16.dp)) {
-                        Input(ui.script, { ui.script = it }, "输入 Shell 命令，例如 whoami", singleLine = false)
-                    }
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Input(ui.script, { ui.script = it }, "输入 Shell 命令，例如 whoami", singleLine = false)
                         Text("执行权限跟随对方的特权工作模式；无或 Dhizuku 使用普通应用权限")
                         Action("执行", activity::executeShell, enabled = !ui.busy)
                     }
