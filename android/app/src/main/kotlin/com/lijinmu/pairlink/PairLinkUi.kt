@@ -141,7 +141,7 @@ class UiState {
         busy = false
         dialog = null
         resultPage = ResultPage(if (suspended) "应用暂停结果" else "应用恢复结果", device, cards,
-            "共 ${cards.size} 个应用", "操作逐个执行。状态未确认的应用请检查后再操作；返回可继续选择应用。")
+            "共 ${cards.size} 个应用", "操作逐个执行\n状态未确认的应用请检查后再操作；返回可继续选择应用")
     }
 
     fun showQuery(action: String, result: JSONObject, device: String) {
@@ -157,8 +157,8 @@ class UiState {
         val range = if (incomingOnly) "统计时段：${formatTime(from)} 至 ${formatTime(to)}，共 $count 次对方指令" else "最近 24 小时，共 ${cards.size} 条记录"
         resultPage = ResultPage(
             "连接与执行记录", device, cards, summary = range,
-            note = "点击卡片查看详情。记录仅保存在本机，保留 24 小时、最多 1000 条。旧版记录没有指令和权限详情。" +
-                if (incomingOnly && count > cards.size) "部分详情已过期、被清除或因数量限制移除。" else "",
+            note = "点击卡片查看详情\n记录仅保存在本机，保留 24 小时、最多 1000 条\n旧版记录没有指令和权限详情" +
+                if (incomingOnly && count > cards.size) "\n部分详情已过期、被清除或因数量限制移除" else "",
             emptyMessage = if (incomingOnly) "此时段暂无可查看的记录，或记录已清除／过期" else "暂无记录",
             historyView = true, historyFrom = from, historyTo = to, historyIncoming = incomingOnly, historyCount = count,
         )
@@ -347,7 +347,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                         item {
                             Section("暂停和恢复应用") {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text("从对方的用户应用列表中搜索并勾选应用，再暂停或恢复。")
+                                    Text("从对方的用户应用列表中搜索并勾选应用，再暂停或恢复")
                                     Action("选择对方应用", activity::openAppPicker, enabled = !ui.busy)
                     }
                 }
@@ -420,7 +420,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
                                 )
                                 Text(
-                                    "恢复应用需使用暂停时的权限方式；Shizuku / Sui 还需保持原来的启动身份。",
+                                    "恢复应用需使用暂停时的权限方式；Shizuku / Sui 还需保持原来的启动身份",
                                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     style = MiuixTheme.textStyles.footnote1,
@@ -430,7 +430,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 SwitchPreference(title = "允许对方发送系统通知", summary = "发送普通通知", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
                                 SwitchPreference(title = "允许对方暂停应用", summary = "不能暂停 PairLink 本身和系统应用", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text("已保护 ${ui.pauseBlacklistCount} 个本机应用。")
+                                    Text("已保护 ${ui.pauseBlacklistCount} 个本机应用")
                                     Action("管理暂停黑名单", activity::openPauseBlacklist, enabled = !ui.busy, primary = false)
                                     Action("恢复已暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
                                 }
@@ -468,7 +468,7 @@ private fun UiDialogs(ui: UiState) {
                 key(dialog) {
                     SelectionContainer {
                         Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                            Text(dialog.body, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                            Text(dialog.body, modifier = Modifier.fillMaxWidth(), textAlign = if (dialog.isResult && !waiting) TextAlign.Start else TextAlign.Center,
                                 fontFamily = if (dialog.isResult) FontFamily.Monospace else null)
                         }
                     }
@@ -653,7 +653,7 @@ private fun recordCard(item: JSONObject): ResultCard {
         if (result.has("stdout")) append("标准输出：\n${result.optString("stdout").ifBlank { "（空）" }}\n\n")
         if (result.has("stderr")) append("错误输出：\n${result.optString("stderr").ifBlank { "（空）" }}\n\n")
         if (result.optString("note").isNotBlank()) append(result.optString("note") + "\n")
-        if (result.optBoolean("history_truncated") || result.optBoolean("truncated")) append("部分输出已截断。")
+        if (result.optBoolean("history_truncated") || result.optBoolean("truncated")) append("部分输出已截断")
     }.trim()
     return ResultCard(title, timestamp(item, "at"), listOf("方向" to direction, "结果" to recordStatus(item)),
         body = if (action == "shell") params.optString("command").take(100) else "点按查看详情",
@@ -737,9 +737,9 @@ private fun queryPage(action: String, result: JSONObject, device: String): Resul
         return ResultPage(
             "媒体播放", device, cards,
             "共 ${cards.size} 个媒体会话 · " + timestamp(result, "queried_at"),
-            "这是查询时的播放快照，进度可能为估算值；仅显示应用向系统提供的信息，可能包含视频。" +
-                (if (result.optBoolean("truncated")) "\n媒体会话较多，仅显示部分结果。" else "") +
-                (if (result.optInt("unavailable_count") > 0) "\n部分媒体会话暂时无法读取。" else ""),
+            "这是查询时的播放快照，进度可能为估算值；仅显示应用向系统提供的信息，可能包含视频" +
+                (if (result.optBoolean("truncated")) "\n媒体会话较多，仅显示部分结果" else "") +
+                (if (result.optInt("unavailable_count") > 0) "\n部分媒体会话暂时无法读取" else ""),
             if (result.optInt("unavailable_count") > 0) "媒体会话暂时无法读取，请稍后重试" else "当前没有可读取的媒体会话",
         )
     }
@@ -763,8 +763,8 @@ private fun queryPage(action: String, result: JSONObject, device: String): Resul
         return ResultPage(
             "当前通知", device, cards,
             "显示 ${list.length()} / ${result.optInt("total_count", list.length())} 条 · " + timestamp(result, "queried_at"),
-            (if (result.optBoolean("truncated")) "通知或正文过多，部分内容未完整展示。\n" else "") +
-                "仅显示系统允许读取的内容；自定义通知或敏感通知可能没有正文。",
+            (if (result.optBoolean("truncated")) "通知或正文过多，部分内容未完整展示\n" else "") +
+                "仅显示系统允许读取的内容；自定义通知或敏感通知可能没有正文",
             "当前没有通知",
         )
     }
@@ -786,8 +786,8 @@ private fun queryPage(action: String, result: JSONObject, device: String): Resul
         device, cards,
         "共 ${apps.length()} 个应用 · " + timestamp(result, "queried_at"),
         listOfNotNull(
-            if (recent) "按前台使用时长排序；系统记录不完整时，时长可能未知或存在误差。" else null,
-            if (result.optBoolean("truncated")) "列表过长，仅显示部分应用。" else null,
+            if (recent) "按前台使用时长排序；系统记录不完整时，时长可能未知或存在误差" else null,
+            if (result.optBoolean("truncated")) "列表过长，仅显示部分应用" else null,
         ).joinToString("\n"),
         if (recent) "此时间段内暂无应用使用记录" else "没有可显示的用户应用",
     )
@@ -911,7 +911,7 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text((if (page.blacklist) "本机设备：" else "对方设备：") + page.device, color = MiuixTheme.colorScheme.primary)
-                if (page.blacklist) Text("勾选后保存，阻止对方通过应用暂停功能暂停这些应用。不会自动恢复已经暂停的应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (page.blacklist) Text("勾选后保存，阻止对方通过应用暂停功能暂停这些应用\n不会自动恢复已经暂停的应用", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Input(ui.appSearch, { ui.appSearch = it }, "搜索应用名或包名", enabled = !ui.busy)
                 Text("共 ${page.apps.size} 个应用 · 显示 ${visible.size} 个 · 已选 ${ui.selectedPeerApps.size} 个",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -919,7 +919,7 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
                     TextButton("刷新列表", { if (page.blacklist) activity.openPauseBlacklist() else activity.openAppPicker() }, Modifier.weight(1f), enabled = !ui.busy)
                     TextButton("清空选择", { ui.selectedPeerApps = emptySet() }, Modifier.weight(1f), enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty())
                 }
-                if (page.truncated) Text("应用列表过长，仅显示服务器返回的部分应用。", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (page.truncated) Text("应用列表过长，仅显示服务器返回的部分应用", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),

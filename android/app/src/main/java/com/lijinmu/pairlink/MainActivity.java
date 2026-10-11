@@ -36,7 +36,7 @@ public final class MainActivity extends ComponentActivity {
                     finishPrivilegeMode("dhizuku");
                 awaitingDhizuku = false;
                 refreshState(); policy();
-                if (!granted) { pendingAppControl = false; pendingShell = false; ui.message("Dhizuku 授权失败", "权限未授予或服务已停止，请在 Dhizuku 中完成激活、启动并允许 PairLink。"); }
+                if (!granted) { pendingAppControl = false; pendingShell = false; ui.message("Dhizuku 授权失败", "权限未授予或服务已停止，请在 Dhizuku 中完成激活、启动并允许 PairLink"); }
             });
         }
     };
@@ -51,7 +51,7 @@ public final class MainActivity extends ComponentActivity {
                 finishPrivilegeMode("shizuku");
             awaitingShizukuMode = false;
             refreshState(); policy();
-            if (!granted) { pendingAppControl = false; pendingShell = false; ui.message("Shizuku / Sui 授权失败", "权限未授予或服务已停止，请在 Shizuku / Sui 管理器中允许 PairLink。"); }
+            if (!granted) { pendingAppControl = false; pendingShell = false; ui.message("Shizuku / Sui 授权失败", "权限未授予或服务已停止，请在 Shizuku / Sui 管理器中允许 PairLink"); }
         });
     };
     private final Handler permissionHandler = new Handler(Looper.getMainLooper());
@@ -171,7 +171,7 @@ public final class MainActivity extends ComponentActivity {
             permissionToast(message);
         } catch (ActivityNotFoundException e) {
             pendingPermission = null;
-            ui.message("无法打开权限设置", message + "。此系统没有提供对应页面，请在系统设置中手动授权后再开启。");
+            ui.message("无法打开权限设置", message + "\n此系统没有提供对应页面，请在系统设置中手动授权后再开启");
         }
         return false;
     }
@@ -217,9 +217,9 @@ public final class MainActivity extends ComponentActivity {
     }
     private void confirmShell() {
         String mode = AppControl.mode(this);
-        ui.confirm("开启远程 Shell", "开启后，对方可以让此 APK 执行命令，执行权限跟随本机特权工作模式。当前执行方式："
+        ui.confirm("开启远程 Shell", "开启后，对方可以让此 APK 执行命令，执行权限跟随本机特权工作模式\n当前执行方式："
             + ("app".equals(ShellPolicy.backend(mode)) ? "普通应用权限" : AppControl.label(mode))
-            + "。第一版服务器没有身份验证，设备 ID 不代表身份。仅在你愿意允许操作时开启。", "开启", () -> {
+            + "\n第一版服务器没有身份验证，设备 ID 不代表身份\n仅在你愿意允许操作时开启", "开启", () -> {
             if (!mode.equals(AppControl.mode(this)) || ("shizuku".equals(mode) && !ShizukuBridge.granted())) {
                 changeShell(true); return;
             }
@@ -238,7 +238,7 @@ public final class MainActivity extends ComponentActivity {
         }
         ui.confirm("警告",
             "root 权限是系统最高权限，使用不当可能造成数据泄露、系统损坏等后果\n\n"
-                + "推荐使用 Dhizuku 或者 Shell 权限。你已被警告使用，请确认理解风险后谨慎使用",
+                + "推荐使用 Dhizuku 或者 Shell 权限\n你已被警告使用，请确认理解风险后谨慎使用",
             "哦", () -> requestPrivilegeMode("root", false));
     }
     private void finishPrivilegeMode(String mode) {
@@ -262,7 +262,7 @@ public final class MainActivity extends ComponentActivity {
         if ("dhizuku".equals(mode)) {
             if (!DhizukuBridge.available(this)) {
                 pendingAppControl = false; pendingShell = false;
-                ui.message("Dhizuku 授权失败", "请先安装、激活并启动 Dhizuku，然后重新选择此模式。");
+                ui.message("Dhizuku 授权失败", "请先安装、激活并启动 Dhizuku，然后重新选择此模式");
                 return;
             }
             if (DhizukuBridge.granted(this)) { finishPrivilegeMode(mode); return; }
@@ -278,14 +278,14 @@ public final class MainActivity extends ComponentActivity {
         if ("shizuku".equals(mode)) {
             if (!ShizukuBridge.available()) {
                 pendingAppControl = false; pendingShell = false;
-                ui.message("Shizuku / Sui 授权失败", "请先启动 Shizuku 或启用 Sui，然后重新选择此模式。");
+                ui.message("Shizuku / Sui 授权失败", "请先启动 Shizuku 或启用 Sui，然后重新选择此模式");
                 return;
             }
             if (ShizukuBridge.granted()) { finishPrivilegeMode(mode); return; }
             try {
                 if (Shizuku.shouldShowRequestPermissionRationale()) {
                     pendingAppControl = false; pendingShell = false;
-                    ui.message("Shizuku / Sui 授权失败", "权限已被拒绝，请在 Shizuku / Sui 管理器中允许 PairLink 后重试。");
+                    ui.message("Shizuku / Sui 授权失败", "权限已被拒绝，请在 Shizuku / Sui 管理器中允许 PairLink 后重试");
                     return;
                 }
                 awaitingShizukuMode = true;
@@ -302,7 +302,7 @@ public final class MainActivity extends ComponentActivity {
             try {
                 ShellRunner.Result result = new ShellRunner().run("id", true, 20, () -> request == modeRequestGeneration);
                 if (result.timedOut || result.cancelled || result.exitCode != 0 || !result.stdout.contains("uid=0"))
-                    failure = "root 权限未授予、申请超时或验证失败，请在 root 管理器中允许 PairLink。";
+                    failure = "root 权限未授予、申请超时或验证失败，请在 root 管理器中允许 PairLink";
             } catch (Exception e) { failure = "无法申请 root 权限：" + e.getMessage(); }
             String error = failure;
             runOnUiThread(() -> {
@@ -324,8 +324,8 @@ public final class MainActivity extends ComponentActivity {
         requestPrivilegeMode(mode, true);
     }
     private void confirmAppControl() {
-        ui.confirm("允许暂停应用", "对方可以暂停和恢复指定应用。本机选择的执行方式为：" + AppControl.label(AppControl.mode(this))
-            + "。恢复本机按钮可在关闭共享后使用。关闭授权不会自动恢复已暂停应用。", "开启", () -> {
+        ui.confirm("允许暂停应用", "对方可以暂停和恢复指定应用\n本机选择的执行方式为：" + AppControl.label(AppControl.mode(this))
+            + "\n恢复本机按钮可在关闭共享后使用\n关闭授权不会自动恢复已暂停应用", "开启", () -> {
             if (!AppControl.authorized(this, AppControl.mode(this), false)) { changeAppControl(true); return; }
             Config.prefs(this).edit().putBoolean("app_control", true).apply(); refreshState(); policy();
         });
@@ -391,7 +391,7 @@ public final class MainActivity extends ComponentActivity {
         }
         Config.prefs(this).edit().putStringSet("pause_blacklist", selected).apply();
         ui.clearAppPicker(); refreshState();
-        ui.message("应用暂停黑名单", "已保存，共 " + selected.size() + " 个应用。对方不能通过应用暂停功能暂停这些应用，仍可恢复。");
+        ui.message("应用暂停黑名单", "已保存，共 " + selected.size() + " 个应用\n对方不能通过应用暂停功能暂停这些应用，仍可恢复");
     }
     private void executePeerApps(AppPickerPage picker, JSONArray selected, boolean suspended) {
         if (busy) { toast("请等待当前请求完成"); return; }
@@ -429,17 +429,17 @@ public final class MainActivity extends ComponentActivity {
                             stopped = "对方已离线，后续应用未执行";
                             item.put("status", "not_executed").put("error", "对方当前离线");
                         } else {
-                            stopped = "上一项状态未确认，后续应用未执行。请检查后再操作";
-                            item.put("status", "uncertain").put("error", "请求超时或仍在执行，指令 ID：" + response.optString("command_id") + "。请勿直接重复提交");
+                            stopped = "上一项状态未确认，后续应用未执行\n请检查后再操作";
+                            item.put("status", "uncertain").put("error", "请求超时或仍在执行，指令 ID：" + response.optString("command_id") + "\n请勿直接重复提交");
                         }
                     } catch (Exception e) {
-                        stopped = "请求中断，后续应用未执行。请检查对方状态后再操作";
-                        item.put("status", "uncertain").put("error", "请求失败：" + e.getMessage() + "。该应用可能已经执行，请勿直接重复提交");
+                        stopped = "请求中断，后续应用未执行\n请检查对方状态后再操作";
+                        item.put("status", "uncertain").put("error", "请求失败：" + e.getMessage() + "\n该应用可能已经执行，请勿直接重复提交");
                     }
                     results.put(item);
                 }
                 runOnUiThread(() -> { if (!isDestroyed()) ui.showPeerAppResults(results, picker.getDevice(), suspended); });
-            } catch (Exception e) { show("批量操作失败：" + e.getMessage() + "。部分应用可能已经执行，请检查后再操作"); }
+            } catch (Exception e) { show("批量操作失败：" + e.getMessage() + "\n部分应用可能已经执行，请检查后再操作"); }
             finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
         });
     }
@@ -464,7 +464,7 @@ public final class MainActivity extends ComponentActivity {
             return;
         }
         if (!ensureNotificationPermission("send_notifications", NotificationSender.CHANNEL_ID)) return;
-        ui.confirm("允许发送普通通知", "开启后，对方可以在你的手机上发送普通系统通知。通知仍受系统通知权限和通知开关控制。", "开启", () -> {
+        ui.confirm("允许发送普通通知", "开启后，对方可以在你的手机上发送普通系统通知\n通知仍受系统通知权限和通知开关控制", "开启", () -> {
             if (!ensureNotificationPermission("send_notifications", NotificationSender.CHANNEL_ID)) return;
             Config.prefs(this).edit().putBoolean("send_notifications", true).apply();
             refreshState(); policy();
@@ -477,7 +477,7 @@ public final class MainActivity extends ComponentActivity {
             return;
         }
         if (!ensureNotificationAccess("notifications")) return;
-        ui.confirm("开启通知共享", "开启后，对方可以读取通知中心当前的应用名、标题和正文。需要你在系统设置中单独授予通知访问权限。", "开启", () -> {
+        ui.confirm("开启通知共享", "开启后，对方可以读取通知中心当前的应用名、标题和正文\n需要你在系统设置中单独授予通知访问权限", "开启", () -> {
             if (!ensureNotificationAccess("notifications")) return;
             Config.prefs(this).edit().putBoolean("notifications", true).apply();
             refreshState();
@@ -501,7 +501,7 @@ public final class MainActivity extends ComponentActivity {
                 String version = rawVersion instanceof String ? ((String) rawVersion).trim() : "";
                 String displayedVersion = version.isEmpty() ? "未提供版本号" : version;
                 String resultText = testConnection ? "服务器连接成功\n" + response.toString(2)
-                    + "\n接收指令需要开启共享并显示在线。" : "";
+                    + "\n接收指令需要开启共享并显示在线" : "";
                 runOnUiThread(() -> {
                     if (isDestroyed() || !base.equals(Config.server(this))) return;
                     Config.prefs(this).edit().putString("server_version_url", base)
@@ -542,7 +542,7 @@ public final class MainActivity extends ComponentActivity {
             return;
         }
         if (!ensureNotificationAccess("media")) return;
-        ui.confirm("开启媒体播放共享", "允许对方查询系统媒体面板中的应用、曲目、作者、播放状态和进度。需要通知访问权限，不会录音。", "开启", () -> {
+        ui.confirm("开启媒体播放共享", "允许对方查询系统媒体面板中的应用、曲目、作者、播放状态和进度\n需要通知访问权限，不会录音", "开启", () -> {
             if (!ensureNotificationAccess("media")) return;
             Config.prefs(this).edit().putBoolean("media", true).apply();
             refreshState();
@@ -601,7 +601,7 @@ public final class MainActivity extends ComponentActivity {
     }
     public void clearLogs() {
         if (busy) { toast("请等待当前请求完成"); return; }
-        ui.confirm("清除本机记录", "清除连接与执行记录，并重新开始定时通知的统计。", "清除", () -> {
+        ui.confirm("清除本机记录", "清除连接与执行记录，并重新开始定时通知的统计", "清除", () -> {
             try {
                 synchronized (CommandSummaryWorker.class) {
                     Config.clearLogs(this);
@@ -685,16 +685,16 @@ public final class MainActivity extends ComponentActivity {
                     JSONObject result = response.getJSONObject("result");
                     runOnUiThread(() -> { if (!isDestroyed()) ui.showQuery(action, result, target); });
                 } else show(format(action, response));
-            } catch (Exception e) { show("请求失败：" + e.getMessage() + ("shell".equals(action) ? "\n不要自动重发 Shell，命令可能已经执行。" : "")); }
+            } catch (Exception e) { show("请求失败：" + e.getMessage() + ("shell".equals(action) ? "\n不要自动重发 Shell，命令可能已经执行" : "")); }
             finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
         });
     }
     private String format(String action, JSONObject response) throws Exception {
         String state = response.optString("status");
-        if ("offline".equals(state)) return "对方当前离线，请让对方打开应用并开启共享。";
+        if ("offline".equals(state)) return "对方当前离线，请让对方打开应用并开启共享";
         if ("failed".equals(state)) return "执行失败：" + response.optString("error");
-        if (!"completed".equals(state)) return "请求超时或仍在执行。指令 ID：" + response.optString("command_id")
-            + ("shell".equals(action) ? "\nShell 可能已经执行，请勿直接重复提交。" : "");
+        if (!"completed".equals(state)) return "请求超时或仍在执行\n指令 ID：" + response.optString("command_id")
+            + ("shell".equals(action) ? "\nShell 可能已经执行，请勿直接重复提交" : "");
         JSONObject r = response.getJSONObject("result");
         if ("set_app_suspended".equals(action)) return formatAppControl(r);
         if ("send_notification".equals(action)) return "普通通知已发送\n标题：" + r.optString("title");

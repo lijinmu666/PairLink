@@ -100,7 +100,7 @@ public final class CommandSummaryWorker extends Worker {
                     return Result.success(); // Keep the window until notifications become available.
                 long from = SummaryWindow.from(previous, now);
                 long count = CommandHistory.countIncoming(c, from, now);
-                String text = "对方在过去 " + SummaryWindow.elapsedLabel(from, now) + "内向本设备发起了 " + count + " 次指令，点按查看详情。";
+                String text = "对方在过去 " + SummaryWindow.elapsedLabel(from, now) + "内向本设备发起了 " + count + " 次指令，点按查看详情";
                 Intent intent = new Intent(c, MainActivity.class).setAction(OPEN_HISTORY)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .putExtra(FROM, from).putExtra(TO, now).putExtra(COUNT, count);
