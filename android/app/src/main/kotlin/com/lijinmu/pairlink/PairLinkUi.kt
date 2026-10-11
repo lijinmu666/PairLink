@@ -276,28 +276,33 @@ private fun Screen(activity: MainActivity, ui: UiState) {
     BackHandler(enabled = page == null && picker != null && !ui.busy && ui.dialog == null) { ui.appPicker = null }
     BackHandler(enabled = page == null && picker == null && selectedTab != 0 && ui.dialog == null && !ui.busy) { selectedTab = 0 }
     BackHandler(enabled = ui.busy) {}
-    // The outgoing page retains its own snapshot until the transition completes.
-    // Dialogs are rendered once, outside the animated destinations.
+    // The root Scaffold keeps Miuix's popup host stable across destination animations.
+    // Child Scaffolds retain their own bars and insets; dialogs render in this root host.
     val destination = UiDestination(page, if (page == null) picker else null)
-    Box(Modifier.fillMaxSize()) {
-        AnimatedContent(
-            targetState = destination,
-            contentKey = { it.route },
-            modifier = Modifier.fillMaxSize().clipToBounds(),
-            transitionSpec = { pageMotion(targetState.depth >= initialState.depth) },
-            label = "页面跳转",
-        ) { shown ->
-            val result = shown.page
-            val appPicker = shown.picker
-            when {
-                result != null -> ResultScreen(activity, ui, result, onBack = {
-                    if (!ui.busy && ui.resultPage === result) ui.resultPage = result.parent
-                })
-                appPicker != null -> AppPickerScreen(activity, ui, appPicker)
-                else -> MainScreen(activity, ui, selectedTab, { selectedTab = it; keyboard?.hide() }, listStates)
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { _ ->
+        Box(Modifier.fillMaxSize()) {
+            AnimatedContent(
+                targetState = destination,
+                contentKey = { it.route },
+                modifier = Modifier.fillMaxSize().clipToBounds(),
+                transitionSpec = { pageMotion(targetState.depth >= initialState.depth) },
+                label = "页面跳转",
+            ) { shown ->
+                val result = shown.page
+                val appPicker = shown.picker
+                when {
+                    result != null -> ResultScreen(activity, ui, result, onBack = {
+                        if (!ui.busy && ui.resultPage === result) ui.resultPage = result.parent
+                    })
+                    appPicker != null -> AppPickerScreen(activity, ui, appPicker)
+                    else -> MainScreen(activity, ui, selectedTab, { selectedTab = it; keyboard?.hide() }, listStates)
+                }
             }
+            UiDialogs(ui)
         }
-        UiDialogs(ui)
     }
 }
 

@@ -1,5 +1,13 @@
 # 验证记录
 
+2026-10-11（弹窗显示回归修复，未编译 APK）：
+
+- 发现动画改动将 UiDialogs 放在所有 Miuix Scaffold 外，弹窗状态缺少可渲染的 popup host
+- 增加稳定的外层 Scaffold，页面动画和唯一 UiDialogs 均位于其内部；子页面保留各自标题栏和系统边距
+- 对照 Miuix v0.9.3 Scaffold 与 MiuixPopupUtils 源码确认根弹窗状态由外层容器提供，弹窗不再随动画页面销毁
+- Kotlin 语法检查通过，仍需构建后手机实测确认弹窗、加载弹窗、错误结果以及下拉菜单的显示与点击
+- 前一版 APK 存在此弹窗回归，本次源码修复尚未包含在已发布 APK 中
+
 2026-10-11（提交记录整理及最新版 release 构建）：
 
 - 原有 92 次提交按用途归类并提供完整链接索引，见 [CHANGELOG.md](CHANGELOG.md)
