@@ -41,7 +41,19 @@ final class ShizukuBridge {
         IPairLinkUserService service = active;
         if (service != null) try { service.cancel(); } catch (Exception ignored) {}
     }
+    private interface ServiceCall { String run(IPairLinkUserService service) throws Exception; }
+    static JSONObject screenshot(Context c, java.util.Set<String> blacklist, BooleanSupplier allowed) throws Exception {
+        return invoke(c, 30, allowed, service -> service.screenshot(blacklist.toArray(new String[0])));
+    }
     static ShellRunner.Result run(Context c, String command, int seconds, BooleanSupplier allowed) throws Exception {
+        JSONObject data = invoke(c, seconds, allowed, service -> service.run(command, seconds));
+        ShellRunner.Result result = new ShellRunner.Result();
+        result.stdout = data.optString("stdout"); result.stderr = data.optString("stderr");
+        result.exitCode = data.optInt("exit_code", -1); result.timedOut = data.optBoolean("timed_out");
+        result.truncated = data.optBoolean("truncated"); result.cancelled = data.optBoolean("cancelled");
+        return result;
+    }
+    private static JSONObject invoke(Context c, int seconds, BooleanSupplier allowed, ServiceCall operation) throws Exception {
         if (!granted()) throw new Exception("Shizuku / Sui 尚未运行或未授权");
         if (!allowed.getAsBoolean()) throw new Exception("特权执行授权已关闭");
         if (!runLock.tryLock()) throw new Exception("已有 Shizuku / Sui 任务正在执行");
@@ -51,7 +63,7 @@ final class ShizukuBridge {
         AtomicReference<String> bindError = new AtomicReference<>();
         active = null;
         Shizuku.UserServiceArgs args = new Shizuku.UserServiceArgs(new ComponentName(c, PrivilegedUserService.class))
-            .daemon(false).tag("pairlink-" + UUID.randomUUID()).processNameSuffix("privileged").version(1);
+            .daemon(false).tag("pairlink-" + UUID.randomUUID()).processNameSuffix("privileged").version(2);
         ServiceConnection connection = new ServiceConnection() {
             private IPairLinkUserService bound;
             @Override public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -89,7 +101,7 @@ final class ShizukuBridge {
                     try { service.cancel(); } catch (Exception ignored) {}
                 }
             }, 0, 250, TimeUnit.MILLISECONDS);
-            Future<String> reply = calls.submit(() -> service.run(command, seconds));
+            Future<String> reply = calls.submit(() -> operation.run(service));
             JSONObject data;
             try { data = new JSONObject(reply.get(seconds + 3L, TimeUnit.SECONDS)); }
             catch (TimeoutException e) {
@@ -101,12 +113,11 @@ final class ShizukuBridge {
                 throw new Exception("Shizuku / Sui 执行失败：" + (message == null ? "远程服务异常" : message), cause);
             }
             if (data.has("error")) throw new Exception(data.optString("error"));
-            ShellRunner.Result result = new ShellRunner.Result();
-            result.stdout = data.optString("stdout"); result.stderr = data.optString("stderr");
-            result.exitCode = data.optInt("exit_code", -1); result.timedOut = data.optBoolean("timed_out");
-            result.truncated = data.optBoolean("truncated");
-            result.cancelled = data.optBoolean("cancelled") || cancelled.get() || !allowed.getAsBoolean() || !granted();
-            return result;
+            boolean revoked = cancelled.get() || !allowed.getAsBoolean() || !granted();
+            // Never pass an image over the app/network boundary after cancellation.
+            if (data.has("image_base64") && revoked) throw new Exception("截图已取消或授权已改变，未回传图片");
+            data.put("cancelled", data.optBoolean("cancelled") || revoked);
+            return data;
         } finally {
             closed.set(true);
             watch.shutdownNow(); calls.shutdownNow();

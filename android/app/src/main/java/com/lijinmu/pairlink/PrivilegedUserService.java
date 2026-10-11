@@ -5,6 +5,8 @@ import org.json.JSONObject;
 
 public final class PrivilegedUserService extends IPairLinkUserService.Stub {
     private final ShellRunner runner = new ShellRunner();
+    private final ScreenshotEngine screenshots = new ScreenshotEngine();
+    private volatile boolean screenshotCancelled;
     public PrivilegedUserService() {}
 
     @Override public String run(String command, int seconds) throws RemoteException {
@@ -19,6 +21,22 @@ public final class PrivilegedUserService extends IPairLinkUserService.Stub {
             catch (Exception ignored) { throw new RemoteException("特权执行失败"); }
         }
     }
-    @Override public void cancel() { runner.cancel(); }
-    @Override public void destroy() { runner.cancel(); System.exit(0); }
+    @Override public String screenshot(String[] blacklist) throws RemoteException {
+        screenshotCancelled = false;
+        try {
+            if (blacklist == null || blacklist.length > 2000) throw new Exception("截图黑名单无效或过大");
+            java.util.Set<String> blocked = new java.util.HashSet<>();
+            for (String pkg : blacklist) {
+                if (pkg == null || pkg.length() > 255 || !AppControl.PACKAGE.matcher(pkg).matches())
+                    throw new Exception("截图黑名单包名无效");
+                blocked.add(pkg);
+            }
+            return screenshots.capture(false, blocked, () -> !screenshotCancelled).toString();
+        } catch (Exception e) {
+            try { return new JSONObject().put("error", e.getMessage() == null ? "截图失败" : e.getMessage()).toString(); }
+            catch (Exception ignored) { throw new RemoteException("截图失败"); }
+        }
+    }
+    @Override public void cancel() { screenshotCancelled = true; runner.cancel(); screenshots.cancel(); }
+    @Override public void destroy() { cancel(); System.exit(0); }
 }

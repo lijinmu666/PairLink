@@ -28,6 +28,9 @@ jobs:
           java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.SummaryWindowTest
           javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/ShellPolicy.java android/test/ShellPolicyTest.java
           java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.ShellPolicyTest
+          javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/ScreenshotPolicy.java android/app/src/main/java/com/lijinmu/pairlink/BinaryCommand.java android/test/ScreenshotPolicyTest.java android/test/BinaryCommandTest.java
+          java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.ScreenshotPolicyTest
+          java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.BinaryCommandTest
       - run: gradle --no-daemon -p android assembleDebug lintDebug
       - uses: actions/upload-artifact@v4
         with:

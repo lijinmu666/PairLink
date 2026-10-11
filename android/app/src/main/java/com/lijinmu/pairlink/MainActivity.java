@@ -27,6 +27,7 @@ public final class MainActivity extends ComponentActivity {
     private boolean permissionSettingsOpened;
     private boolean pendingAppControl;
     private boolean pendingShell;
+    private boolean pendingScreenshot;
     private final DhizukuRequestPermissionListener dhizukuPermissionResult = new DhizukuRequestPermissionListener() {
         @Override public void onRequestPermission(int result) {
             runOnUiThread(() -> {
@@ -36,7 +37,7 @@ public final class MainActivity extends ComponentActivity {
                     finishPrivilegeMode("dhizuku");
                 awaitingDhizuku = false;
                 refreshState(); policy();
-                if (!granted) { pendingAppControl = false; pendingShell = false; ui.message("Dhizuku 授权失败", "权限未授予或服务已停止，请在 Dhizuku 中完成激活、启动并允许 PairLink"); }
+                if (!granted) { pendingAppControl = false; pendingShell = false; pendingScreenshot = false; ui.message("Dhizuku 授权失败", "权限未授予或服务已停止，请在 Dhizuku 中完成激活、启动并允许 PairLink"); }
             });
         }
     };
@@ -51,7 +52,7 @@ public final class MainActivity extends ComponentActivity {
                 finishPrivilegeMode("shizuku");
             awaitingShizukuMode = false;
             refreshState(); policy();
-            if (!granted) { pendingAppControl = false; pendingShell = false; ui.message("Shizuku / Sui 授权失败", "权限未授予或服务已停止，请在 Shizuku / Sui 管理器中允许 PairLink"); }
+            if (!granted) { pendingAppControl = false; pendingShell = false; pendingScreenshot = false; ui.message("Shizuku / Sui 授权失败", "权限未授予或服务已停止，请在 Shizuku / Sui 管理器中允许 PairLink"); }
         });
     };
     private final Handler permissionHandler = new Handler(Looper.getMainLooper());
@@ -111,6 +112,8 @@ public final class MainActivity extends ComponentActivity {
         ui.setDhizuku(Config.prefs(this).getBoolean("dhizuku", false));
         ui.setSharing(Config.sharing(this));
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
+        ui.setScreenshots(Config.prefs(this).getBoolean("screenshots", false));
+        ui.setScreenshotBlacklistCount(Config.screenshotBlacklist(this).size());
         ui.setNotifications(Config.prefs(this).getBoolean("notifications", false));
         ui.setMedia(Config.prefs(this).getBoolean("media", false));
         ui.setSendNotifications(Config.prefs(this).getBoolean("send_notifications", false));
@@ -242,26 +245,34 @@ public final class MainActivity extends ComponentActivity {
             "哦", () -> requestPrivilegeMode("root", false));
     }
     private void finishPrivilegeMode(String mode) {
-        Config.prefs(this).edit().putString("app_control_mode", mode).apply();
+        SharedPreferences prefs = Config.prefs(this);
+        SharedPreferences.Editor editor = prefs.edit().putString("app_control_mode", mode);
+        if (!mode.equals(AppControl.mode(this))) editor.putLong("screenshot_revision", prefs.getLong("screenshot_revision", 0) + 1);
+        editor.apply();
         refreshState(); policy();
-        boolean enableAppControl = pendingAppControl, enableShell = pendingShell;
-        pendingAppControl = false; pendingShell = false;
+        boolean enableAppControl = pendingAppControl, enableShell = pendingShell, enableScreenshot = pendingScreenshot;
+        pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
         if (enableAppControl) confirmAppControl();
         else if (enableShell) confirmShell();
+        else if (enableScreenshot) confirmScreenshot();
     }
     private void requestPrivilegeMode(String mode, boolean enableAppControl) {
         requestPrivilegeMode(mode, enableAppControl, false);
     }
     private void requestPrivilegeMode(String mode, boolean enableAppControl, boolean enableShell) {
+        requestPrivilegeMode(mode, enableAppControl, enableShell, false);
+    }
+    private void requestPrivilegeMode(String mode, boolean enableAppControl, boolean enableShell, boolean enableScreenshot) {
         if (!mode.equals("none") && !mode.equals("dhizuku") && !mode.equals("shizuku") && !mode.equals("root")) return;
         if (busy || awaitingDhizuku || awaitingShizukuMode) { toast("请先完成当前请求或授权"); return; }
         int request = ++modeRequestGeneration;
         pendingAppControl = enableAppControl;
         pendingShell = enableShell;
-        if ("none".equals(mode)) { pendingAppControl = false; pendingShell = false; finishPrivilegeMode(mode); return; }
+        pendingScreenshot = enableScreenshot;
+        if ("none".equals(mode)) { pendingAppControl = false; pendingShell = false; pendingScreenshot = false; finishPrivilegeMode(mode); return; }
         if ("dhizuku".equals(mode)) {
             if (!DhizukuBridge.available(this)) {
-                pendingAppControl = false; pendingShell = false;
+                pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
                 ui.message("Dhizuku 授权失败", "请先安装、激活并启动 Dhizuku，然后重新选择此模式");
                 return;
             }
@@ -270,28 +281,28 @@ public final class MainActivity extends ComponentActivity {
                 awaitingDhizuku = true;
                 DhizukuBridge.request(this, dhizukuPermissionResult);
             } catch (Exception e) {
-                awaitingDhizuku = false; pendingAppControl = false; pendingShell = false;
+                awaitingDhizuku = false; pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
                 ui.message("Dhizuku 授权失败", "无法申请权限：" + e.getMessage());
             }
             return;
         }
         if ("shizuku".equals(mode)) {
             if (!ShizukuBridge.available()) {
-                pendingAppControl = false; pendingShell = false;
+                pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
                 ui.message("Shizuku / Sui 授权失败", "请先启动 Shizuku 或启用 Sui，然后重新选择此模式");
                 return;
             }
             if (ShizukuBridge.granted()) { finishPrivilegeMode(mode); return; }
             try {
                 if (Shizuku.shouldShowRequestPermissionRationale()) {
-                    pendingAppControl = false; pendingShell = false;
+                    pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
                     ui.message("Shizuku / Sui 授权失败", "权限已被拒绝，请在 Shizuku / Sui 管理器中允许 PairLink 后重试");
                     return;
                 }
                 awaitingShizukuMode = true;
                 Shizuku.requestPermission(200);
             } catch (RuntimeException e) {
-                awaitingShizukuMode = false; pendingAppControl = false; pendingShell = false;
+                awaitingShizukuMode = false; pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
                 ui.message("Shizuku / Sui 授权失败", "无法申请权限：" + e.getMessage());
             }
             return;
@@ -310,10 +321,34 @@ public final class MainActivity extends ComponentActivity {
                 if (isDestroyed() || request != modeRequestGeneration) return;
                 ui.setDialog(null);
                 if (error == null) finishPrivilegeMode("root");
-                else { pendingAppControl = false; pendingShell = false; ui.message("root 授权失败", error); }
+                else { pendingAppControl = false; pendingShell = false; pendingScreenshot = false; ui.message("root 授权失败", error); }
             });
         });
     }
+    public void changeScreenshots(boolean checked) {
+        if (!checked) {
+            pendingScreenshot = false;
+            SharedPreferences prefs = Config.prefs(this);
+            prefs.edit().putBoolean("screenshots", false).putLong("screenshot_revision", prefs.getLong("screenshot_revision", 0) + 1).apply();
+            refreshState(); policy(); return;
+        }
+        String mode = AppControl.mode(this);
+        if (!"root".equals(mode) && !"shizuku".equals(mode)) {
+            ui.message("截图权限", "请先在特权工作模式中选择 root 或 Shizuku / Sui 并授权\n无和 Dhizuku 模式暂不支持屏幕截图");
+            return;
+        }
+        requestPrivilegeMode(mode, false, false, true);
+    }
+    private void confirmScreenshot() {
+        String mode = AppControl.mode(this);
+        ui.confirm("允许对方屏幕截图", "开启后，对方可以请求此手机当前屏幕的截图\n截图前后检查前台应用，命中截图黑名单或无法确认时拒绝\n截图经服务器传给对方，服务器查询结果中的图片最多保留 10 分钟\n息屏或锁屏时不截图", "开启", () -> {
+            if (!mode.equals(AppControl.mode(this)) || !ScreenshotQueries.ready(this, mode)) { changeScreenshots(true); return; }
+            SharedPreferences prefs = Config.prefs(this);
+            prefs.edit().putBoolean("screenshots", true).putLong("screenshot_revision", prefs.getLong("screenshot_revision", 0) + 1).apply();
+            refreshState(); policy();
+        });
+    }
+    public void queryScreenshot() { send("get_screenshot", new JSONObject()); }
     public void changeAppControl(boolean checked) {
         if (!checked) {
             pendingAppControl = false;
@@ -353,45 +388,54 @@ public final class MainActivity extends ComponentActivity {
         return !picker.getBlacklist() && picker.getServer().equals(Config.server(this)) && picker.getSender().equals(Config.own(this))
             && picker.getDevice().equals(Config.peer(this));
     }
-    public void openPauseBlacklist() {
+    public void openPauseBlacklist() { openLocalBlacklist(false); }
+    public void openScreenshotBlacklist() { openLocalBlacklist(true); }
+    private void openLocalBlacklist(boolean screenshot) {
         if (busy) { toast("请等待当前请求完成"); return; }
         AppPickerPage picker = ui.getAppPicker();
-        Set<String> chosen = picker != null && picker.getBlacklist()
-            ? new HashSet<>(ui.getSelectedPeerApps()) : Config.pauseBlacklist(this);
+        Set<String> chosen = picker != null && picker.getBlacklist() && picker.getScreenshotBlacklist() == screenshot
+            ? new HashSet<>(ui.getSelectedPeerApps()) : screenshot ? Config.screenshotBlacklist(this) : Config.pauseBlacklist(this);
         busy = true; ui.setBusy(true); show("正在加载本机应用……");
         network.execute(() -> {
             try {
                 JSONArray apps = new JSONArray();
                 Set<String> installed = new HashSet<>();
                 for (ApplicationInfo app : getPackageManager().getInstalledApplications(0)) {
-                    if ((app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
+                    if (!screenshot && (app.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
                     String name = app.packageName;
                     try { name = getPackageManager().getApplicationLabel(app).toString(); } catch (RuntimeException ignored) {}
                     apps.put(new JSONObject().put("package_name", app.packageName).put("app_name", name).put("installed", true));
                     installed.add(app.packageName);
                 }
                 for (String pkg : chosen) {
-                    if (installed.contains(pkg) || getPackageName().equals(pkg)) continue;
+                    if (installed.contains(pkg) || (!screenshot && getPackageName().equals(pkg))) continue;
                     apps.put(new JSONObject().put("package_name", pkg).put("app_name", pkg).put("installed", false));
                 }
-                runOnUiThread(() -> { if (!isDestroyed()) ui.showPauseBlacklist(apps, chosen, Config.own(this), getPackageName()); });
+                runOnUiThread(() -> { if (!isDestroyed()) ui.showLocalBlacklist(apps, chosen, Config.own(this), getPackageName(), screenshot); });
             } catch (Exception e) { show("加载本机应用失败：" + e.getMessage()); }
             finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
         });
     }
-    public void savePauseBlacklist() {
+    public void savePauseBlacklist() { saveLocalBlacklist(false); }
+    public void saveScreenshotBlacklist() { saveLocalBlacklist(true); }
+    private void saveLocalBlacklist(boolean screenshot) {
         if (busy) { toast("请等待当前请求完成"); return; }
         AppPickerPage picker = ui.getAppPicker();
-        if (picker == null || !picker.getBlacklist()) return;
+        if (picker == null || !picker.getBlacklist() || picker.getScreenshotBlacklist() != screenshot) return;
         Set<String> selected = new HashSet<>();
         JSONArray apps = ui.selectedAppRequests();
         for (int i = 0; i < apps.length(); i++) {
             String pkg = apps.optJSONObject(i).optString("package_name");
-            if (!getPackageName().equals(pkg) && pkg.length() <= 255 && AppControl.PACKAGE.matcher(pkg).matches()) selected.add(pkg);
+            if ((screenshot || !getPackageName().equals(pkg)) && pkg.length() <= 255 && AppControl.PACKAGE.matcher(pkg).matches()) selected.add(pkg);
         }
-        Config.prefs(this).edit().putStringSet("pause_blacklist", selected).apply();
-        ui.clearAppPicker(); refreshState();
-        ui.message("应用暂停黑名单", "已保存，共 " + selected.size() + " 个应用\n对方不能通过应用暂停功能暂停这些应用，仍可恢复");
+        if (screenshot && selected.size() > 2000) { ui.message("截图黑名单", "最多选择 2000 个应用"); return; }
+        SharedPreferences prefs = Config.prefs(this);
+        SharedPreferences.Editor editor = prefs.edit().putStringSet(screenshot ? "screenshot_blacklist" : "pause_blacklist", selected);
+        if (screenshot) editor.putLong("screenshot_revision", prefs.getLong("screenshot_revision", 0) + 1);
+        editor.apply();
+        ui.clearAppPicker(); refreshState(); policy();
+        ui.message(screenshot ? "截图黑名单" : "应用暂停黑名单", "已保存，共 " + selected.size() + " 个应用\n" +
+            (screenshot ? "当前前台应用在黑名单时，对方的截图请求会被拒绝" : "对方不能通过应用暂停功能暂停这些应用，仍可恢复"));
     }
     private void executePeerApps(AppPickerPage picker, JSONArray selected, boolean suspended) {
         if (busy) { toast("请等待当前请求完成"); return; }
@@ -678,6 +722,16 @@ public final class MainActivity extends ComponentActivity {
                             ui.clearAppPicker(); ui.message("应用选择器", "连接设置已更改，请重新获取应用列表"); return;
                         }
                         ui.showAppPicker(result, base, sender, target, getPackageName());
+                    });
+                } else if ("get_screenshot".equals(action) && "completed".equals(response.optString("status"))) {
+                    JSONObject result = response.getJSONObject("result");
+                    android.graphics.Bitmap image = ScreenshotQueries.decode(result);
+                    runOnUiThread(() -> {
+                        if (isDestroyed()) { image.recycle(); return; }
+                        if (!base.equals(Config.server(this)) || !sender.equals(Config.own(this)) || !target.equals(Config.peer(this))) {
+                            image.recycle(); ui.message("屏幕截图", "连接设置已改变，请重新请求截图"); return;
+                        }
+                        ui.showScreenshot(result, image, target);
                     });
                 } else if ("completed".equals(response.optString("status"))
                     && ("get_recent_apps".equals(action) || "get_installed_apps".equals(action)

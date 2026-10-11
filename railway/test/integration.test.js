@@ -129,3 +129,61 @@ test('server detects an unresponsive WebSocket and marks new commands offline', 
   assert.equal((await f.request('/api/commands', input())).body.status, 'offline');
 });
 
+
+function screenshotResult(size = 90000) {
+  const bytes = Buffer.alloc(size, 0x61);
+  bytes[0] = 0xff; bytes[1] = 0xd8; bytes[size - 2] = 0xff; bytes[size - 1] = 0xd9;
+  return { mime_type: 'image/jpeg', image_base64: bytes.toString('base64'), width: 1080, height: 1920,
+    source_width: 1080, source_height: 1920, foreground_package: 'com.example.app',
+    backend: 'shizuku', shizuku_uid: 2000, work_mode: 'shizuku', captured_at: 1700000000000, compressed: true };
+}
+
+test('screenshot image larger than ordinary result limit round-trips and expires after 10 minutes, including restart', async t => {
+  let time = 1700000000000;
+  const f = await fixture(t, { now: () => time });
+  const ws = await f.phone(); const msg = received(ws);
+  const submitted = await f.request('/api/commands', input('get_screenshot', { root: true, blacklist: [] }));
+  const command = await msg;
+  assert.equal(submitted.status, 202); assert.equal(command.action, 'get_screenshot');
+  assert.deepEqual(command.params, {}); // No sender control over local blacklist or capture identity.
+  const payload = screenshotResult(200000);
+  const body = { device_id: 'bob', command_id: command.command_id, ok: true, result: payload };
+  assert.equal((await f.request('/api/device/result', { ...body, device_id: 'alice' })).status, 409);
+  assert.equal((await f.request('/api/device/result', body)).status, 200);
+  let record = (await f.request('/api/commands/' + command.command_id)).body;
+  assert.equal(record.result.image_base64, payload.image_base64);
+  assert.equal(record.result.image_expires_at, time + 600000);
+  await f.restart();
+  time += 599999;
+  record = (await f.request('/api/commands/' + command.command_id)).body;
+  assert.equal(record.result.image_base64, payload.image_base64);
+  time += 1;
+  record = (await f.request('/api/commands/' + command.command_id)).body;
+  assert.equal(record.result.image_base64, undefined); assert.equal(record.result.image_expired, true);
+  assert.equal(record.result.foreground_package, 'com.example.app');
+  assert.equal(record.status, 'completed');
+  await f.restart();
+  assert.equal((await f.request('/api/commands/' + command.command_id)).body.result.image_base64, undefined);
+  time += DAY;
+  assert.equal((await f.request('/api/commands/' + command.command_id)).status, 404);
+});
+
+test('screenshot rejects invalid image, oversized JPEG, missing foreground and wrong backend; ordinary limits remain', async t => {
+  const f = await fixture(t); const ws = await f.phone(); const msg = received(ws);
+  const submitted = await f.request('/api/commands', input('get_screenshot')); await msg;
+  const result = screenshotResult();
+  const send = async value => (await f.request('/api/device/result', { device_id: 'bob', command_id: submitted.body.command_id, ok: true, result: value })).status;
+  for (const value of [screenshotResult(200001), { ...result, image_base64: 'not base64' },
+    { ...result, image_base64: Buffer.from('not jpeg').toString('base64') }, { ...result, foreground_package: '' },
+    { ...result, backend: 'dhizuku' }, { ...result, width: 2049 }, { ...result, mime_type: 'image/png' }])
+    assert.equal(await send(value), 409);
+  assert.equal((await f.request('/api/commands/' + submitted.body.command_id)).body.status, 'pending');
+  // Refused captures carry only an error; images are not required for failure results.
+  assert.equal((await f.request('/api/device/result', { device_id: 'bob', command_id: submitted.body.command_id,
+    ok: false, error: '当前前台应用已加入本机截图黑名单，已拒绝截图' })).status, 200);
+  const refused = (await f.request('/api/commands/' + submitted.body.command_id)).body;
+  assert.equal(refused.status, 'failed'); assert.equal(refused.result, null);
+  const next = received(ws); const normal = await f.request('/api/commands', input()); await next;
+  assert.equal((await f.request('/api/device/result', { device_id: 'bob', command_id: normal.body.command_id,
+    ok: true, result: { text: 'a'.repeat(48001) } })).status, 409);
+});

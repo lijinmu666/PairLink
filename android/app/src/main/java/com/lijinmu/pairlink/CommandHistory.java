@@ -135,7 +135,7 @@ final class CommandHistory extends SQLiteOpenHelper {
             if (error != null && !error.isEmpty()) record.put("error", limited(error, 4096));
             if (result != null) {
                 JSONObject brief = new JSONObject();
-                for (String key : new String[]{"backend", "work_mode", "root", "shizuku_uid", "exit_code", "timed_out", "cancelled", "truncated", "suspended", "requested_suspended", "package_name", "app_name", "note", "sent", "title", "sent_at", "queried_at"}) {
+                for (String key : new String[]{"mime_type", "width", "height", "source_width", "source_height", "foreground_package", "captured_at", "compressed", "backend", "work_mode", "root", "shizuku_uid", "exit_code", "timed_out", "cancelled", "truncated", "suspended", "requested_suspended", "package_name", "app_name", "note", "sent", "title", "sent_at", "queried_at"}) {
                     Object value = result.opt(key);
                     if (value instanceof String) brief.put(key, limited((String) value, 4096));
                     else if (value instanceof Number || value instanceof Boolean) brief.put(key, value);

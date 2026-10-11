@@ -19,6 +19,7 @@ action 可选：
 
 | action | params |
 | --- | --- |
+| get_screenshot | 空对象；需接收手机开启截图授权并使用 root 或 Shizuku / Sui，黑名单由接收手机检查 |
 | get_status | 空对象；返回设备型号、安卓版本、开机时长、当前屏幕应用、电量和授权状态 |
 | get_recent_apps | hours：1 到 24，默认 1；客户端固定查询 24 小时 |
 | get_installed_apps | 空对象；返回已安装的用户应用 | 
@@ -102,6 +103,16 @@ Railway 为兼容旧客户端仍接受 root/shizuku 布尔字段（默认 false�
 结果包含 `backend`（app/root/shizuku）、`work_mode`（none/dhizuku/shizuku/root）、`shizuku_uid`（仅 Shizuku 有效，其他为 -1），保留原有 root、输出与状态字段。root 表示使用 root 通道；Shizuku 启动身份用 UID 判断。选择 Shizuku 时授权或服务不可用则失败，不会改用其他权限。执行期间模式、共享开关、Shell 开关或 Shizuku 身份变化会尝试取消执行。
 
 设备状态新增 `work_mode`、`shell_backend` 和 `shizuku_uid`；兼容字段 `root_enabled` 表示共享和 Shell 已开启且本机选择 root，不再代表单独的 root 开关。
+
+## 屏幕截图结果
+
+`get_screenshot` 不接受发送方指定执行方式或黑名单，服务端将参数规范化为空对象。接收端要求共享和截图授权开启，屏幕亮着且未锁屏，按本机 root／Shizuku 工作模式查询前台并检查本机截图黑名单。
+
+成功结果包含 `mime_type: image/jpeg`、`image_base64`、`width`、`height`、`source_width`、`source_height`、`foreground_package`、`backend`、`work_mode`、`shizuku_uid`、`captured_at` 和 `compressed: true`。图片经压缩，最大 200000 字节、长边最大 2048。仅截图结果允许最多 300000 字符的 JSON，其他结果仍最多 48000 字符。图片通过 `POST /api/device/result` 回传；原 WebSocket 回传大小限制不变。
+
+服务端验证 MIME、Base64、JPEG 首尾标记、图片大小、尺寸及执行方式，并添加 `image_expires_at`（完成时间 + 10 分钟）。到期后的查询保留截图元数据，去掉 `image_base64` 并增加 `image_expired: true`。指令本身和元数据仍保留 24 小时。终态截图不得再次覆盖，重启不会重置过期时间。
+
+权限、黑名单、前台识别或系统截图失败时按原有 `ok: false` / `failed` 回传错误，不包含图片。双方需更新 APK，Railway 需更新到 0.2.0。
 
 ## 当前通知结果
 

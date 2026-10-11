@@ -17,6 +17,7 @@ public final class LinkService extends Service {
     private final ExecutorService tasks = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean();
     private final ShellRunner runner = new ShellRunner();
+    private final ScreenshotEngine screenshots = new ScreenshotEngine();
     private final Set<String> seen = new HashSet<>();
     private WebSocket socket;
     private int generation;
@@ -25,6 +26,10 @@ public final class LinkService extends Service {
     private volatile long lastPong;
     private volatile String executingShellMode;
     private volatile int executingShellUid = -1;
+    private volatile boolean executingScreenshot;
+    private volatile String screenshotMode;
+    private volatile int screenshotUid = -1;
+    private volatile long screenshotRevision;
     private volatile boolean executingAppControl;
     private volatile String executingAppBackend;
     private String base;
@@ -44,14 +49,16 @@ public final class LinkService extends Service {
         if (intent != null && STOP.equals(intent.getAction())) {
             Config.prefs(this).edit().putBoolean("sharing", false).apply();
         }
-        if (!Config.sharing(this)) { runner.cancel(); ShizukuBridge.cancel(); stopSelf(); return START_NOT_STICKY; }
+        if (!Config.sharing(this)) { runner.cancel(); screenshots.cancel(); ShizukuBridge.cancel(); stopSelf(); return START_NOT_STICKY; }
         updateStatusNotification(Config.prefs(this).getString("connection", "正在连接"));
         if (intent != null && POLICY.equals(intent.getAction())) {
-            boolean denied = executingAppControl
+            boolean denied = executingScreenshot
+                ? !ScreenshotQueries.allowed(this, screenshotMode, screenshotUid, screenshotRevision)
+                : executingAppControl
                 ? !Config.prefs(this).getBoolean("app_control", false) || !AppControl.authorized(this, executingAppBackend, false)
                 : executingShellMode != null && !Config.shellAllowed(this, executingShellMode, executingShellUid);
             if (denied) {
-                runner.cancel(); ShizukuBridge.cancel();
+                runner.cancel(); screenshots.cancel(); ShizukuBridge.cancel();
             }
         }
         return START_STICKY;
@@ -154,6 +161,17 @@ public final class LinkService extends Service {
             if (params == null) params = new JSONObject();
             JSONObject result;
             switch (action) {
+                case "get_screenshot":
+                    screenshotMode = AppControl.mode(this);
+                    screenshotUid = "shizuku".equals(screenshotMode) ? ShizukuBridge.uid() : -1;
+                    screenshotRevision = Config.prefs(this).getLong("screenshot_revision", 0);
+                    if (!ScreenshotQueries.ready(this, screenshotMode)) throw new Exception("屏幕截图需要 root 或已授权的 Shizuku / Sui");
+                    if (!ScreenshotQueries.allowed(this, screenshotMode, screenshotUid, screenshotRevision))
+                        throw new Exception("对方未允许截图、权限已改变，或手机处于息屏／锁屏状态");
+                    executingScreenshot = true;
+                    CommandHistory.started(this, record, screenshotMode, screenshotUid);
+                    result = ScreenshotQueries.capture(this, screenshots, screenshotMode, screenshotUid, screenshotRevision);
+                    break;
                 case "get_status": CommandHistory.started(this, record, "app", -1); result = DeviceQueries.status(this); break;
                 case "get_installed_apps": CommandHistory.started(this, record, "app", -1); result = DeviceQueries.installedApps(this); break;
                 case "send_notification":
@@ -205,6 +223,11 @@ public final class LinkService extends Service {
                     break;
                 default: throw new Exception("不支持的指令");
             }
+            if ("get_screenshot".equals(action)) {
+                if (!ScreenshotQueries.allowed(this, screenshotMode, screenshotUid, screenshotRevision))
+                    throw new Exception("截图授权已关闭或权限已改变，未回传图片");
+                ScreenshotPolicy.check(result.optString("foreground_package"), Config.screenshotBlacklist(this));
+            }
             if ("get_media".equals(action)) MediaQueries.checkAllowed(this);
             if ("get_notifications".equals(action)) NotificationReaderService.checkAllowed(this);
             CommandHistory.finish(this, record, id, "completed", result, null);
@@ -215,7 +238,7 @@ public final class LinkService extends Service {
             CommandHistory.finish(this, record, id, "failed", null, message);
             returnResult(id, null, message);
         }
-        finally { executingShellMode = null; executingShellUid = -1; executingAppControl = false; executingAppBackend = null; busy.set(false); }
+        finally { executingScreenshot = false; screenshotMode = null; screenshotUid = -1; executingShellMode = null; executingShellUid = -1; executingAppControl = false; executingAppBackend = null; busy.set(false); }
     }
     private void returnResult(String id, JSONObject result, String error) {
         try {
@@ -227,7 +250,7 @@ public final class LinkService extends Service {
     }
     @Override public void onDestroy() {
         destroyed = true; generation++; handler.removeCallbacksAndMessages(null);
-        runner.cancel(); ShizukuBridge.cancel(); tasks.shutdownNow();
+        runner.cancel(); screenshots.cancel(); ShizukuBridge.cancel(); tasks.shutdownNow();
         if (socket != null) socket.cancel();
         Config.prefs(this).edit().putString("connection", "共享已停止").apply();
         stopForeground(true); super.onDestroy();

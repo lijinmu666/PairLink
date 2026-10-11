@@ -1,3 +1,4 @@
+import { SCREENSHOT_TTL } from './protocol.js';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -25,6 +26,11 @@ export class CommandStore {
     for (const record of this.all()) {
       if (record.status === 'pending' && record.deadline_at <= now)
         this.put({ ...record, status: 'timeout', completed_at: now });
+      if (record.action === 'get_screenshot' && record.result?.image_base64
+          && (record.result.image_expires_at ?? record.completed_at + SCREENSHOT_TTL) <= now) {
+        const { image_base64: _image, ...metadata } = record.result;
+        this.put({ ...record, result: { ...metadata, image_expired: true } });
+      }
     }
   }
   close() { this.db.close(); }

@@ -24,6 +24,9 @@ final class Config {
     static Set<String> pauseBlacklist(Context c) {
         return new HashSet<>(prefs(c).getStringSet("pause_blacklist", Collections.emptySet()));
     }
+    static Set<String> screenshotBlacklist(Context c) {
+        return new HashSet<>(prefs(c).getStringSet("screenshot_blacklist", Collections.emptySet()));
+    }
     static boolean pauseBlocked(Context c, String pkg) { return pauseBlacklist(c).contains(pkg); }
     static String nightMode(Context c) {
         String mode = prefs(c).getString("night_mode", "system");

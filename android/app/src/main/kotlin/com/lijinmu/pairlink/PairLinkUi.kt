@@ -1,6 +1,10 @@
 package com.lijinmu.pairlink
 
 import android.os.Build
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
@@ -52,6 +56,8 @@ class UiState {
     var appSearch by mutableStateOf("")
     var selectedPeerApps by mutableStateOf<Set<String>>(emptySet())
     var pauseBlacklistCount by mutableIntStateOf(0)
+    var screenshotBlacklistCount by mutableIntStateOf(0)
+    var screenshots by mutableStateOf(false)
     var dhizuku by mutableStateOf(false)
     var nightMode by mutableStateOf("system")
     var appControl by mutableStateOf(false)
@@ -103,15 +109,15 @@ class UiState {
         }
         return result
     }
-    fun showPauseBlacklist(array: JSONArray, chosen: Set<String>, device: String, protectedPackage: String) {
+    fun showLocalBlacklist(array: JSONArray, chosen: Set<String>, device: String, protectedPackage: String, screenshot: Boolean) {
         val apps = (0 until array.length()).mapNotNull { index ->
             val item = array.optJSONObject(index) ?: return@mapNotNull null
             val pkg = item.optString("package_name")
             if (pkg.length > 255 || !AppControl.PACKAGE.matcher(pkg).matches()) return@mapNotNull null
-            PeerApp(pkg, displayAppName(item.optString("app_name"), pkg), pkg == protectedPackage, item.optBoolean("installed", true))
+            PeerApp(pkg, displayAppName(item.optString("app_name"), pkg), !screenshot && pkg == protectedPackage, item.optBoolean("installed", true))
         }.distinctBy { it.packageName }.sortedWith(compareBy<PeerApp> { it.name.lowercase(Locale.ROOT) }.thenBy { it.packageName })
-        val refreshing = appPicker?.blacklist == true
-        appPicker = AppPickerPage("", "", device, apps, false, blacklist = true)
+        val refreshing = appPicker?.blacklist == true && appPicker?.screenshotBlacklist == screenshot
+        appPicker = AppPickerPage("", "", device, apps, false, blacklist = true, screenshotBlacklist = screenshot)
         selectedPeerApps = chosen.intersect(apps.filterNot { it.protectedApp }.map { it.packageName }.toSet())
         if (!refreshing) appSearch = ""
         resultPage = null
@@ -179,6 +185,21 @@ class UiState {
         busy = false
         dialog = null
         resultPage = ResultPage("本机应用恢复结果", own, cards, emptyMessage = "没有需要恢复的应用")
+    }
+    fun showScreenshot(result: JSONObject, image: Bitmap, device: String) {
+        busy = false
+        dialog = null
+        appPicker = null
+        resultPage = ResultPage("屏幕截图", device, listOf(
+            ResultCard("对方当前屏幕", image = image),
+            ResultCard("截图信息", fields = listOf(
+                "截图时间" to timestamp(result, "captured_at"),
+                "前台应用包名" to result.optString("foreground_package"),
+                "图片尺寸" to "${result.optInt("width")} × ${result.optInt("height")}",
+                "原始尺寸" to "${result.optInt("source_width")} × ${result.optInt("source_height")}",
+                "执行方式" to executionIdentity(result.optString("backend"), result.optInt("shizuku_uid", -1)),
+            )),
+        ), note = "图片经过压缩，服务器查询结果中的图片最多保留 10 分钟")
     }
     fun showResult(body: String) {
         dialog = UiDialog("执行结果", body, "关闭", null, isResult = true)
@@ -328,6 +349,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     Action("查看应用列表", activity::queryInstalledApps, enabled = !ui.busy, primary = false)
                                     Action("查看通知列表", activity::queryNotifications, enabled = !ui.busy, primary = false)
                                     Action("查看媒体播放", activity::queryMedia, enabled = !ui.busy, primary = false)
+                                    Action("查看屏幕截图", activity::queryScreenshot, enabled = !ui.busy, primary = false)
                     }
                 }
             }
@@ -428,6 +450,11 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 SwitchPreference(title = "允许对方查看通知列表", summary = if (ui.notificationAccess) "查询时读取当前通知" else "需要授予系统通知访问权限", checked = ui.notifications, onCheckedChange = activity::changeNotifications)
                                 SwitchPreference(title = "允许对方查看媒体播放", summary = if (ui.notificationAccess) "查询系统媒体面板的曲目和播放状态" else "需要授予系统通知访问权限", checked = ui.media, onCheckedChange = activity::changeMedia)
                                 SwitchPreference(title = "允许对方发送系统通知", summary = "发送普通通知", checked = ui.sendNotifications, onCheckedChange = activity::changeSendNotifications)
+                                SwitchPreference(title = "允许对方屏幕截图", summary = "需 root 或 Shizuku / Sui，息屏或锁屏时拒绝", checked = ui.screenshots, onCheckedChange = activity::changeScreenshots)
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("截图黑名单已选择 ${ui.screenshotBlacklistCount} 个应用")
+                                    Action("管理截图黑名单", activity::openScreenshotBlacklist, enabled = !ui.busy, primary = false)
+                                }
                                 SwitchPreference(title = "允许对方暂停应用", summary = "不能暂停 PairLink 本身和系统应用", checked = ui.appControl, onCheckedChange = activity::changeAppControl)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text("已保护 ${ui.pauseBlacklistCount} 个本机应用")
@@ -518,6 +545,7 @@ data class ResultCard(
     val body: String = "",
     val detailFields: List<Pair<String, String>>? = null,
     val detailBody: String = "",
+    val image: Bitmap? = null,
 )
 
 data class ResultPage(
@@ -540,6 +568,7 @@ private fun formatTime(time: Long): String =
 
 private fun commandName(action: String): String = when (action) {
     "shell" -> "执行 Shell 指令"
+    "get_screenshot" -> "屏幕截图"
     "get_status" -> "查询设备状态"
     "get_installed_apps" -> "查询应用列表"
     "get_recent_apps" -> "查询应用使用情况"
@@ -637,6 +666,12 @@ private fun recordCard(item: JSONObject): ResultCard {
         if (result.has("cancelled")) details += "是否取消" to if (result.optBoolean("cancelled")) "是" else "否"
     } else {
         if (item.has("actual_backend")) details += "执行方式" to executionIdentity(item.optString("actual_backend"), item.optInt("execution_uid", -1))
+        if (action == "get_screenshot" && result.has("width")) {
+            details += "截图前台应用" to result.optString("foreground_package")
+            details += "图片尺寸" to "${result.optInt("width")} × ${result.optInt("height")}"
+            details += "截图时间" to timestamp(result, "captured_at")
+            details += "图片记录" to "本机记录不保存截图图片"
+        }
         if (params.has("package_name")) details += "应用包名" to params.optString("package_name")
         if (result.has("app_name")) details += "应用名" to appName(result)
         if (result.has("suspended")) details += "当前暂停状态" to if (result.optBoolean("suspended")) "已暂停" else "未暂停"
@@ -848,6 +883,11 @@ private fun ResultScreen(activity: MainActivity, ui: UiState, page: ResultPage, 
                                     Text(value)
                                 }
                             }
+                            card.image?.let { image ->
+                                Image(bitmap = image.asImageBitmap(), contentDescription = "对方屏幕截图",
+                                    modifier = Modifier.fillMaxWidth().aspectRatio(image.width.toFloat() / image.height),
+                                    contentScale = ContentScale.Fit)
+                            }
                             if (card.body.isNotBlank()) Text(card.body)
                         }
                     }
@@ -887,7 +927,7 @@ private val BackArrow: ImageVector by lazy {
 
 
 data class PeerApp(val packageName: String, val name: String, val protectedApp: Boolean, val installed: Boolean = true, val pausedByPairLink: Boolean = false)
-data class AppPickerPage(val server: String, val sender: String, val device: String, val apps: List<PeerApp>, val truncated: Boolean, val blacklist: Boolean = false)
+data class AppPickerPage(val server: String, val sender: String, val device: String, val apps: List<PeerApp>, val truncated: Boolean, val blacklist: Boolean = false, val screenshotBlacklist: Boolean = false)
 
 @Composable
 private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPickerPage) {
@@ -898,8 +938,8 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = if (page.blacklist) "应用暂停黑名单" else "选择对方应用",
-                largeTitle = if (page.blacklist) "应用暂停黑名单" else "选择对方应用",
+                title = if (page.screenshotBlacklist) "截图黑名单" else if (page.blacklist) "应用暂停黑名单" else "选择对方应用",
+                largeTitle = if (page.screenshotBlacklist) "截图黑名单" else if (page.blacklist) "应用暂停黑名单" else "选择对方应用",
                 navigationIcon = {
                     IconButton(onClick = { if (!ui.busy) { keyboard?.hide(); ui.appPicker = null } }, minWidth = 48.dp, minHeight = 48.dp) {
                         Icon(BackArrow, contentDescription = "返回", tint = MiuixTheme.colorScheme.onSurface)
@@ -911,12 +951,12 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text((if (page.blacklist) "本机设备：" else "对方设备：") + page.device, color = MiuixTheme.colorScheme.primary)
-                if (page.blacklist) Text("勾选后保存，阻止对方通过应用暂停功能暂停这些应用\n不会自动恢复已经暂停的应用", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (page.blacklist) Text(if (page.screenshotBlacklist) "勾选后保存\n前台应用在黑名单中时拒绝对方截图，可选择用户应用和系统应用" else "勾选后保存，阻止对方通过应用暂停功能暂停这些应用\n不会自动恢复已经暂停的应用", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Input(ui.appSearch, { ui.appSearch = it }, "搜索应用名或包名", enabled = !ui.busy)
                 Text("共 ${page.apps.size} 个应用 · 显示 ${visible.size} 个 · 已选 ${ui.selectedPeerApps.size} 个",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton("刷新列表", { if (page.blacklist) activity.openPauseBlacklist() else activity.openAppPicker() }, Modifier.weight(1f), enabled = !ui.busy)
+                    TextButton("刷新列表", { if (page.screenshotBlacklist) activity.openScreenshotBlacklist() else if (page.blacklist) activity.openPauseBlacklist() else activity.openAppPicker() }, Modifier.weight(1f), enabled = !ui.busy)
                     TextButton("清空选择", { ui.selectedPeerApps = emptySet() }, Modifier.weight(1f), enabled = !ui.busy && ui.selectedPeerApps.isNotEmpty())
                 }
                 if (page.truncated) Text("应用列表过长，仅显示服务器返回的部分应用", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -947,7 +987,7 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (page.blacklist) {
-                    TextButton("保存黑名单", { keyboard?.hide(); activity.savePauseBlacklist() }, Modifier.weight(1f),
+                    TextButton("保存黑名单", { keyboard?.hide(); if (page.screenshotBlacklist) activity.saveScreenshotBlacklist() else activity.savePauseBlacklist() }, Modifier.weight(1f),
                         enabled = !ui.busy, colors = ButtonDefaults.textButtonColorsPrimary())
                 } else {
                     TextButton("暂停所选", { keyboard?.hide(); activity.suspendPeerApp() }, Modifier.weight(1f),

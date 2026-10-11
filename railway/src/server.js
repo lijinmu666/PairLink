@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { CommandStore, DAY } from './store.js';
-import { validId, validCommandId, validateCommand, acceptResult } from './protocol.js';
+import { validId, validCommandId, validateCommand, acceptResult, SCREENSHOT_RESULT_CHARS } from './protocol.js';
 
 function reply(res, body, status = 200) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -44,7 +44,7 @@ export function createPairLink({ databasePath = './data/pairlink.sqlite', now = 
       const url = new URL(req.url, 'http://localhost');
       const path = url.pathname;
       if (stopping) return reply(res, { error: 'server stopping' }, 503);
-      if (path === '/health') return reply(res, { ok: true, service: 'PairLink', version: '0.1.0', backend: 'railway' });
+      if (path === '/health') return reply(res, { ok: true, service: 'PairLink', version: '0.2.0', backend: 'railway' });
       if (path === '/api/device/ws') return reply(res, { error: 'websocket required' }, 426);
       if (path === '/api/commands' && req.method === 'POST') {
         const input = validateCommand(await jsonBody(req, 12000));
@@ -84,8 +84,10 @@ export function createPairLink({ databasePath = './data/pairlink.sqlite', now = 
         return record ? reply(res, record) : reply(res, { error: 'command not found' }, 404);
       }
       if (path === '/api/device/result' && req.method === 'POST') {
-        const body = await jsonBody(req, 60000);
+        const body = await jsonBody(req, SCREENSHOT_RESULT_CHARS + 1000);
         if (!body || !validId(body.device_id) || !validCommandId(body.command_id)) return reply(res, { error: 'invalid result' }, 400);
+        if (store.get(body.command_id)?.action !== 'get_screenshot' && JSON.stringify(body).length > 60000)
+          return reply(res, { error: 'body too large' }, 413);
         if (!saveResult(body.command_id, body.device_id, body)) return reply(res, { error: '指令不存在、已结束或设备不匹配' }, 409);
         return reply(res, { ok: true });
       }
