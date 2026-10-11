@@ -1,5 +1,17 @@
 # 验证记录
 
+2026-10-11（release APK 构建完成）：
+
+- 本次 APK 包含截图与截图黑名单、连接和执行记录详情、定时通知、Shell 跟随工作模式及文案和结果弹窗对齐更新
+- 构建提交：`1465c4723c88fed96222a7f3617437a4861e9c13`
+- Android assembleRelease、lintRelease、ShellRunner、SummaryWindow、ShellPolicy、ScreenshotPolicy 和 BinaryCommand 检查通过
+- Railway 9 项测试与源码检查通过
+- 使用原签名密钥，v2／v3 校验通过，证书与上一版相同
+- APK SHA-256：`95b7e79b932a72f251f1f2f1d912dd4abf1b7ae85843e8c7c59bccda3dd3a11a`
+- [GitHub Actions 构建](https://github.com/lijinmu666/PairLink/actions/runs/38101791326)
+- 构建后恢复手动触发流程，密钥和密码未上传仓库
+- 尚需手机实测截图前台检测、Shizuku Binder 回传、黑名单及授权撤销，以及定时通知与界面显示
+
 2026-10-11（屏幕截图源码更新，未编译 APK）：
 
 - 添加本机截图授权开关及截图黑名单入口，位于应用暂停开关上方；本机选择器支持系统／用户应用、搜索、多选和保存。
