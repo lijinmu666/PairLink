@@ -1,5 +1,17 @@
 # 验证记录
 
+2026-10-11（提交记录整理及最新版 release 构建）：
+
+- 原有 92 次提交按用途归类并提供完整链接索引，见 [CHANGELOG.md](CHANGELOG.md)
+- 本次 APK 包含页面与列表动画、截图焦点查询修复、应用使用情况共享开关及 Shell 提示间距调整，保留最新手动修改的文案
+- 构建提交：`67ff0a2643eda52def20dbba4eb85bfb534fe925`
+- Android assembleRelease、lintRelease 及全部基础测试通过，Railway 测试与源码检查通过
+- 原密钥签名，v2／v3 验证通过，证书与上一版相同
+- APK SHA-256：`e99a6095710016e8b5cddf8a119bba71996e70d8b2587c373eb58d3b52f06a4d`
+- [GitHub Actions 构建](https://github.com/lijinmu666/PairLink/actions/runs/38112019205)
+- 恢复手动构建流程，密钥及密码未上传仓库
+- 仍需手机实测 Sui 截图、黑名单、应用使用情况权限引导和过渡动画
+
 2026-10-11（应用使用情况授权开关，未编译 APK）：
 
 - 在特权工作模式下方添加“允许对方查看应用使用情况”，新装及未设置此偏好的旧版本升级默认关闭
