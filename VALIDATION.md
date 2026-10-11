@@ -1,5 +1,16 @@
 # 验证记录
 
+2026-10-11（弹窗容器修复版 release 构建）：
+
+- 本次 APK 包含固定外层 Miuix Scaffold，恢复页面动画外的确认、加载和结果弹窗宿主
+- 构建提交：`41679bbdde882a799d7119c67a5c67ee1553d066`
+- Android assembleRelease、lintRelease 与全部基础测试通过，Railway 测试和源码检查通过
+- 原密钥签名，v2／v3 验证通过，证书与上一版相同
+- APK SHA-256：`82e12295435d4bf3aaa6d3fc70329023b3bb07f52a8a6ed634651487357755ec`
+- [GitHub Actions 构建](https://github.com/lijinmu666/PairLink/actions/runs/38113449116)
+- 恢复手动构建流程，密钥及密码未上传仓库
+- 尚需手机实测各页弹窗显示、点击、关闭、加载及下拉菜单；构建成功不代表实机交互已验证
+
 2026-10-11（弹窗显示回归修复，未编译 APK）：
 
 - 发现动画改动将 UiDialogs 放在所有 Miuix Scaffold 外，弹窗状态缺少可渲染的 popup host
