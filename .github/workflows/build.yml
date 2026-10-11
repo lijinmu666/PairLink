@@ -1,6 +1,8 @@
 name: 编译与验证
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 permissions:
   contents: read
 jobs:
@@ -31,11 +33,15 @@ jobs:
           javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/ScreenshotPolicy.java android/app/src/main/java/com/lijinmu/pairlink/BinaryCommand.java android/test/ScreenshotPolicyTest.java android/test/BinaryCommandTest.java
           java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.ScreenshotPolicyTest
           java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.BinaryCommandTest
-      - run: gradle --no-daemon -p android assembleDebug lintDebug
+      - run: gradle --no-daemon -p android assembleRelease lintRelease
+      - run: |
+          mkdir -p /tmp/pairlink-release
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -P 16 -f -v 4 android/app/build/outputs/apk/release/app-release-unsigned.apk /tmp/pairlink-release/PairLink-release-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" /tmp/pairlink-release/
       - uses: actions/upload-artifact@v4
         with:
-          name: PairLink-0.2.0-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: PairLink-release-unsigned
+          path: /tmp/pairlink-release/
   railway:
     runs-on: ubuntu-latest
     steps:
