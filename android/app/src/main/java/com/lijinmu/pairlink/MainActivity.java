@@ -20,13 +20,13 @@ public final class MainActivity extends ComponentActivity {
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final UiState ui = new UiState();
     private volatile boolean busy;
-    private boolean awaitingShizuku;
     private boolean awaitingShizukuMode;
     private boolean awaitingDhizuku;
     private volatile int modeRequestGeneration;
     private String pendingPermission;
     private boolean permissionSettingsOpened;
     private boolean pendingAppControl;
+    private boolean pendingShell;
     private final DhizukuRequestPermissionListener dhizukuPermissionResult = new DhizukuRequestPermissionListener() {
         @Override public void onRequestPermission(int result) {
             runOnUiThread(() -> {
@@ -36,7 +36,7 @@ public final class MainActivity extends ComponentActivity {
                     finishPrivilegeMode("dhizuku");
                 awaitingDhizuku = false;
                 refreshState(); policy();
-                if (!granted) { pendingAppControl = false; ui.message("Dhizuku 授权失败", "权限未授予或服务已停止，请在 Dhizuku 中完成激活、启动并允许 PairLink。"); }
+                if (!granted) { pendingAppControl = false; pendingShell = false; ui.message("Dhizuku 授权失败", "权限未授予或服务已停止，请在 Dhizuku 中完成激活、启动并允许 PairLink。"); }
             });
         }
     };
@@ -45,16 +45,13 @@ public final class MainActivity extends ComponentActivity {
     private final Shizuku.OnRequestPermissionResultListener shizukuPermissionResult = (code, result) -> {
         if (code != 200) return;
         runOnUiThread(() -> {
-            if (isDestroyed() || (!awaitingShizuku && !awaitingShizukuMode)) return;
+            if (isDestroyed() || !awaitingShizukuMode) return;
             boolean granted = result == PackageManager.PERMISSION_GRANTED && ShizukuBridge.granted();
-            if (awaitingShizuku && granted)
-                Config.prefs(this).edit().putBoolean("shizuku", true).apply();
             if (awaitingShizukuMode && granted)
                 finishPrivilegeMode("shizuku");
-            awaitingShizuku = false;
             awaitingShizukuMode = false;
             refreshState(); policy();
-            if (!granted) { pendingAppControl = false; ui.message("Shizuku / Sui 授权失败", "权限未授予或服务已停止，请在 Shizuku / Sui 管理器中允许 PairLink。"); }
+            if (!granted) { pendingAppControl = false; pendingShell = false; ui.message("Shizuku / Sui 授权失败", "权限未授予或服务已停止，请在 Shizuku / Sui 管理器中允许 PairLink。"); }
         });
     };
     private final Handler permissionHandler = new Handler(Looper.getMainLooper());
@@ -67,6 +64,7 @@ public final class MainActivity extends ComponentActivity {
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (prefs, key) -> runOnUiThread(this::refreshState);
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
+        Config.prefs(this).edit().remove("root").remove("shizuku").apply();
         if (b != null) { pendingPermission = b.getString("pending_permission"); permissionSettingsOpened = pendingPermission != null; }
         Shizuku.addRequestPermissionResultListener(shizukuPermissionResult);
         ui.setServer(Config.server(this)); ui.setOwn(Config.own(this)); ui.setPeer(Config.peer(this));
@@ -113,11 +111,9 @@ public final class MainActivity extends ComponentActivity {
         ui.setDhizuku(Config.prefs(this).getBoolean("dhizuku", false));
         ui.setSharing(Config.sharing(this));
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
-        ui.setRoot(Config.prefs(this).getBoolean("root", false));
         ui.setNotifications(Config.prefs(this).getBoolean("notifications", false));
         ui.setMedia(Config.prefs(this).getBoolean("media", false));
         ui.setSendNotifications(Config.prefs(this).getBoolean("send_notifications", false));
-        ui.setShizuku(Config.prefs(this).getBoolean("shizuku", false));
         ui.setAppControl(Config.prefs(this).getBoolean("app_control", false));
         ui.setAppControlMode(AppControl.mode(this));
         ui.setPauseBlacklistCount(Config.pauseBlacklist(this).size());
@@ -209,34 +205,25 @@ public final class MainActivity extends ComponentActivity {
         refreshState();
     }
     public void changeShell(boolean checked) {
-        if (checked) ui.confirm("开启远程 Shell", "开启后，对方可以让此 APK 执行命令。第一版服务器没有身份验证，设备 ID 不代表身份。仅在你愿意允许操作时开启。", "开启", () -> {
-            Config.prefs(this).edit().putBoolean("shell", true).apply(); refreshState(); policy();
-        });
-        else {
-            Config.prefs(this).edit().putBoolean("shell", false).putBoolean("root", false).apply(); refreshState(); policy();
-        }
-    }
-    public void changeRoot(boolean checked) {
-        if (!checked) { Config.prefs(this).edit().putBoolean("root", false).apply(); refreshState(); policy(); return; }
-        if (!Config.prefs(this).getBoolean("shell", false)) { toast("请先开启远程 Shell"); return; }
-        ui.confirm("授权 root 模式", "将请求本机 root 管理器授权。成功后，对方可以以 root 权限执行命令。", "请求授权", this::authorizeRoot);
-    }
-    public void changeShizuku(boolean checked) {
         if (!checked) {
-            awaitingShizuku = false;
-            Config.prefs(this).edit().putBoolean("shizuku", false).apply();
-            refreshState(); policy();
+            pendingShell = false;
+            Config.prefs(this).edit().putBoolean("shell", false).apply(); refreshState(); policy();
             return;
         }
-        ui.confirm("授权 Shizuku / Sui 指令", "允许对方在开启 Shell 指令后，通过 Shizuku / Sui 执行指令。此开关不修改应用暂停的特权工作模式。实际权限由 Shizuku / Sui 的启动身份决定。", "授权", () -> {
-            if (!ShizukuBridge.available()) { toast("请先启动 Shizuku 或安装并启用 Sui"); return; }
-            if (ShizukuBridge.granted()) {
-                Config.prefs(this).edit().putBoolean("shizuku", true).apply(); refreshState(); return;
+        if (busy || awaitingDhizuku || awaitingShizukuMode) { toast("请先完成当前请求或授权"); return; }
+        String mode = AppControl.mode(this);
+        if ("shizuku".equals(mode) || "root".equals(mode)) requestPrivilegeMode(mode, false, true);
+        else confirmShell();
+    }
+    private void confirmShell() {
+        String mode = AppControl.mode(this);
+        ui.confirm("开启远程 Shell", "开启后，对方可以让此 APK 执行命令，执行权限跟随本机特权工作模式。当前执行方式："
+            + ("app".equals(ShellPolicy.backend(mode)) ? "普通应用权限" : AppControl.label(mode))
+            + "。第一版服务器没有身份验证，设备 ID 不代表身份。仅在你愿意允许操作时开启。", "开启", () -> {
+            if (!mode.equals(AppControl.mode(this)) || ("shizuku".equals(mode) && !ShizukuBridge.granted())) {
+                changeShell(true); return;
             }
-            try {
-                if (Shizuku.shouldShowRequestPermissionRationale()) { toast("请在 Shizuku / Sui 管理器中为 PairLink 授权"); return; }
-                awaitingShizuku = true; Shizuku.requestPermission(200);
-            } catch (RuntimeException e) { awaitingShizuku = false; toast("Shizuku / Sui 授权请求失败"); }
+            Config.prefs(this).edit().putBoolean("shell", true).apply(); refreshState(); policy();
         });
     }
     public void selectNightMode(String mode) {
@@ -246,7 +233,7 @@ public final class MainActivity extends ComponentActivity {
     }
     public void selectAppControlMode(String mode) {
         if (!"root".equals(mode)) { requestPrivilegeMode(mode, false); return; }
-        if (busy || awaitingDhizuku || awaitingShizukuMode || awaitingShizuku) {
+        if (busy || awaitingDhizuku || awaitingShizukuMode) {
             toast("请先完成当前请求或授权"); return;
         }
         ui.confirm("警告",
@@ -257,20 +244,24 @@ public final class MainActivity extends ComponentActivity {
     private void finishPrivilegeMode(String mode) {
         Config.prefs(this).edit().putString("app_control_mode", mode).apply();
         refreshState(); policy();
-        if (pendingAppControl) {
-            pendingAppControl = false;
-            confirmAppControl();
-        }
+        boolean enableAppControl = pendingAppControl, enableShell = pendingShell;
+        pendingAppControl = false; pendingShell = false;
+        if (enableAppControl) confirmAppControl();
+        else if (enableShell) confirmShell();
     }
     private void requestPrivilegeMode(String mode, boolean enableAppControl) {
+        requestPrivilegeMode(mode, enableAppControl, false);
+    }
+    private void requestPrivilegeMode(String mode, boolean enableAppControl, boolean enableShell) {
         if (!mode.equals("none") && !mode.equals("dhizuku") && !mode.equals("shizuku") && !mode.equals("root")) return;
-        if (busy || awaitingDhizuku || awaitingShizukuMode || awaitingShizuku) { toast("请先完成当前请求或授权"); return; }
+        if (busy || awaitingDhizuku || awaitingShizukuMode) { toast("请先完成当前请求或授权"); return; }
         int request = ++modeRequestGeneration;
         pendingAppControl = enableAppControl;
-        if ("none".equals(mode)) { pendingAppControl = false; finishPrivilegeMode(mode); return; }
+        pendingShell = enableShell;
+        if ("none".equals(mode)) { pendingAppControl = false; pendingShell = false; finishPrivilegeMode(mode); return; }
         if ("dhizuku".equals(mode)) {
             if (!DhizukuBridge.available(this)) {
-                pendingAppControl = false;
+                pendingAppControl = false; pendingShell = false;
                 ui.message("Dhizuku 授权失败", "请先安装、激活并启动 Dhizuku，然后重新选择此模式。");
                 return;
             }
@@ -279,28 +270,28 @@ public final class MainActivity extends ComponentActivity {
                 awaitingDhizuku = true;
                 DhizukuBridge.request(this, dhizukuPermissionResult);
             } catch (Exception e) {
-                awaitingDhizuku = false; pendingAppControl = false;
+                awaitingDhizuku = false; pendingAppControl = false; pendingShell = false;
                 ui.message("Dhizuku 授权失败", "无法申请权限：" + e.getMessage());
             }
             return;
         }
         if ("shizuku".equals(mode)) {
             if (!ShizukuBridge.available()) {
-                pendingAppControl = false;
+                pendingAppControl = false; pendingShell = false;
                 ui.message("Shizuku / Sui 授权失败", "请先启动 Shizuku 或启用 Sui，然后重新选择此模式。");
                 return;
             }
             if (ShizukuBridge.granted()) { finishPrivilegeMode(mode); return; }
             try {
                 if (Shizuku.shouldShowRequestPermissionRationale()) {
-                    pendingAppControl = false;
+                    pendingAppControl = false; pendingShell = false;
                     ui.message("Shizuku / Sui 授权失败", "权限已被拒绝，请在 Shizuku / Sui 管理器中允许 PairLink 后重试。");
                     return;
                 }
                 awaitingShizukuMode = true;
                 Shizuku.requestPermission(200);
             } catch (RuntimeException e) {
-                awaitingShizukuMode = false; pendingAppControl = false;
+                awaitingShizukuMode = false; pendingAppControl = false; pendingShell = false;
                 ui.message("Shizuku / Sui 授权失败", "无法申请权限：" + e.getMessage());
             }
             return;
@@ -319,7 +310,7 @@ public final class MainActivity extends ComponentActivity {
                 if (isDestroyed() || request != modeRequestGeneration) return;
                 ui.setDialog(null);
                 if (error == null) finishPrivilegeMode("root");
-                else { pendingAppControl = false; ui.message("root 授权失败", error); }
+                else { pendingAppControl = false; pendingShell = false; ui.message("root 授权失败", error); }
             });
         });
     }
@@ -565,11 +556,9 @@ public final class MainActivity extends ComponentActivity {
     }
     public void executeShell() {
         String command = ui.getScript();
-        boolean requestRoot = ui.getSendRoot();
-        boolean requestShizuku = ui.getSendShizuku();
         if (command.trim().isEmpty()) { toast("请输入命令"); return; }
         ui.confirm("执行到 " + Config.peer(this), command, "执行", () -> {
-            try { send("shell", new JSONObject().put("command", command).put("root", requestRoot).put("shizuku", requestShizuku).put("timeout_seconds", 20)); }
+            try { send("shell", new JSONObject().put("command", command).put("timeout_seconds", 20)); }
             catch (Exception e) { show(e.getMessage()); }
         });
     }
@@ -620,19 +609,6 @@ public final class MainActivity extends ComponentActivity {
                 }
                 showLogs();
             } catch (Exception e) { ui.message("本机记录", "清除失败：" + e.getMessage()); }
-        });
-    }
-    private void authorizeRoot() {
-        network.execute(() -> {
-            try {
-                ShellRunner.Result r = new ShellRunner().run("id", true, 20, () -> true);
-                boolean ok = !r.timedOut && r.exitCode == 0 && r.stdout.contains("uid=0");
-                runOnUiThread(() -> {
-                    if (ok && Config.prefs(this).getBoolean("shell", false)) {
-                        Config.prefs(this).edit().putBoolean("root", true).apply(); refreshState(); toast("root 授权成功");
-                    } else toast("root 授权失败或 Shell 已关闭");
-                });
-            } catch (Exception e) { runOnUiThread(() -> toast("root 不可用：" + e.getMessage())); }
         });
     }
     private void policy() {

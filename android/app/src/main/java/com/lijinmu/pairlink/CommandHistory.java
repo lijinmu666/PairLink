@@ -79,7 +79,8 @@ final class CommandHistory extends SQLiteOpenHelper {
         return new JSONObject().put("id", key).put("kind", kind).put("at", System.currentTimeMillis())
             .put("server", server).put("sender_id", sender).put("target_id", target)
             .put("command_id", commandId).put("action", action).put("params", parameters(params))
-            .put("status", "pending").put("started", false);
+            .put("status", "pending").put("started", false)
+            .put("shell_policy", "receiver_work_mode");
     }
     /** False means the same incoming command was already audited; do not execute it again. */
     static synchronized boolean beginIncoming(Context c, String server, JSONObject command) {
@@ -134,7 +135,7 @@ final class CommandHistory extends SQLiteOpenHelper {
             if (error != null && !error.isEmpty()) record.put("error", limited(error, 4096));
             if (result != null) {
                 JSONObject brief = new JSONObject();
-                for (String key : new String[]{"backend", "root", "shizuku_uid", "exit_code", "timed_out", "cancelled", "truncated", "suspended", "requested_suspended", "package_name", "app_name", "note", "sent", "title", "sent_at", "queried_at"}) {
+                for (String key : new String[]{"backend", "work_mode", "root", "shizuku_uid", "exit_code", "timed_out", "cancelled", "truncated", "suspended", "requested_suspended", "package_name", "app_name", "note", "sent", "title", "sent_at", "queried_at"}) {
                     Object value = result.opt(key);
                     if (value instanceof String) brief.put(key, limited((String) value, 4096));
                     else if (value instanceof Number || value instanceof Boolean) brief.put(key, value);

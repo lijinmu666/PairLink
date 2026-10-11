@@ -52,10 +52,8 @@ class UiState {
     var appSearch by mutableStateOf("")
     var selectedPeerApps by mutableStateOf<Set<String>>(emptySet())
     var pauseBlacklistCount by mutableIntStateOf(0)
-    var shizuku by mutableStateOf(false)
     var dhizuku by mutableStateOf(false)
     var nightMode by mutableStateOf("system")
-    var sendShizuku by mutableStateOf(false)
     var appControl by mutableStateOf(false)
     var appControlMode by mutableStateOf("none")
     var privilegeStatus by mutableStateOf("")
@@ -65,8 +63,6 @@ class UiState {
     var statusNotification by mutableStateOf(true)
     var sharing by mutableStateOf(false)
     var shell by mutableStateOf(false)
-    var root by mutableStateOf(false)
-    var sendRoot by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var usageAllowed by mutableStateOf(false)
     var notificationAccess by mutableStateOf(false)
@@ -370,9 +366,8 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     Column(Modifier.padding(16.dp)) {
                         Input(ui.script, { ui.script = it }, "输入 Shell 命令，例如 whoami", singleLine = false)
                     }
-                    SwitchPreference(title = "使用对方的 root 权限", checked = ui.sendRoot, onCheckedChange = { ui.sendRoot = it; if (it) ui.sendShizuku = false })
-                    SwitchPreference(title = "使用对方的 Shell 权限", checked = ui.sendShizuku, onCheckedChange = { ui.sendShizuku = it; if (it) ui.sendRoot = false })
-                    Column(Modifier.padding(16.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("执行权限跟随对方的特权工作模式；无或 Dhizuku 使用普通应用权限")
                         Action("执行", activity::executeShell, enabled = !ui.busy)
                     }
                 }
@@ -419,7 +414,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 val modes = listOf("none", "dhizuku", "shizuku", "root")
                                 OverlayDropdownPreference(
                                     title = "特权工作模式",
-                                    summary = "暂停应用使用所选模式；Shell 指令权限单独设置",
+                                    summary = "暂停应用和 Shell 跟随所选模式；无或 Dhizuku 的 Shell 使用普通应用权限",
                                     items = listOf("无", "Dhizuku", "Shizuku / Sui", "root"),
                                     selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
                                     onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
@@ -439,9 +434,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                     Action("管理暂停黑名单", activity::openPauseBlacklist, enabled = !ui.busy, primary = false)
                                     Action("恢复已暂停的应用", activity::restoreLocalApps, enabled = !ui.busy, primary = false)
                                 }
-                                SwitchPreference(title = "允许对方执行 Shell 指令", summary = "本机主动确认后开启", checked = ui.shell, onCheckedChange = activity::changeShell)
-                                SwitchPreference(title = "允许使用 root 权限执行指令", summary = "需开启 Shell 指令并授权 root", checked = ui.root, onCheckedChange = activity::changeRoot)
-                                SwitchPreference(title = "允许使用 Shell 权限执行指令", summary = "通过 Shizuku / Sui 执行，实际权限由其启动身份决定", checked = ui.shizuku, onCheckedChange = activity::changeShizuku)
+                                SwitchPreference(title = "允许对方执行 Shell 指令", summary = "执行权限跟随本机特权工作模式", checked = ui.shell, onCheckedChange = activity::changeShell)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(ui.privilegeStatus)
                                     if (!ui.usageAllowed)
@@ -582,6 +575,14 @@ private fun requestedShell(params: JSONObject): String = when {
     else -> "普通应用权限"
 }
 
+private fun privilegeModeName(mode: String): String = when (mode) {
+    "none" -> "无"
+    "dhizuku" -> "Dhizuku"
+    "shizuku" -> "Shizuku / Sui"
+    "root" -> "root"
+    else -> "未知"
+}
+
 private fun executionIdentity(backend: String, uid: Int): String = when (backend) {
     "app" -> "普通应用权限"
     "root" -> "root"
@@ -622,11 +623,12 @@ private fun recordCard(item: JSONObject): ResultCard {
     )
     if (action == "shell") {
         details += "Shell 指令" to params.optString("command").ifBlank { "未记录" }
-        details += "请求权限" to requestedShell(params)
+        details += "权限规则" to if (item.optString("shell_policy") == "receiver_work_mode") "跟随接收手机的特权工作模式" else "旧版请求：" + requestedShell(params)
         // Do not mistake the request flags for the receiving device's execution report.
         val identity = if (result.has("backend")) executionIdentity(result.optString("backend"), result.optInt("shizuku_uid", -1))
             else "未执行或实际权限尚未确认"
         details += "执行方式（对方返回）" to identity
+        if (result.has("work_mode")) details += "执行时的特权工作模式" to privilegeModeName(result.optString("work_mode"))
         if (item.has("actual_backend") && !result.has("backend"))
             details += "尝试使用的执行通道" to executionIdentity(item.optString("actual_backend"), item.optInt("execution_uid", -1))
         details += "超时设置" to "${params.optInt("timeout_seconds", 20)} 秒"
@@ -709,7 +711,8 @@ private fun queryPage(action: String, result: JSONObject, device: String): Resul
             },
             ResultCard("执行授权", fields = listOf(
                 "Shell" to if (result.optBoolean("shell_enabled")) "开启" else "关闭",
-                "root" to if (result.optBoolean("root_enabled")) "开启" else "关闭",
+                "特权工作模式" to if (result.has("work_mode")) privilegeModeName(result.optString("work_mode")) else "旧版未提供",
+                "Shell 执行方式" to if (result.has("shell_backend")) executionIdentity(result.optString("shell_backend"), result.optInt("shizuku_uid", -1)) else "旧版未提供",
             )),
         )
         return ResultPage("设备状态", device, cards, "查询时间：" + timestamp(result, "queried_at"))

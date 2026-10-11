@@ -39,7 +39,10 @@ final class DeviceQueries {
             .put("screen_off", screenOff == null ? JSONObject.NULL : screenOff)
             .put("current_app", foreground).put("battery_percent", scale > 0 ? Math.round(level * 100f / scale) : -1)
             .put("charging", state == BatteryManager.BATTERY_STATUS_CHARGING || state == BatteryManager.BATTERY_STATUS_FULL)
-            .put("shell_enabled", Config.shell(c)).put("root_enabled", Config.root(c)).put("queried_at", System.currentTimeMillis());
+            .put("shell_enabled", Config.shell(c)).put("work_mode", AppControl.mode(c))
+            .put("shell_backend", ShellPolicy.backend(AppControl.mode(c)))
+            .put("shizuku_uid", "shizuku".equals(AppControl.mode(c)) ? ShizukuBridge.uid() : -1)
+            .put("root_enabled", Config.shell(c) && "root".equals(AppControl.mode(c))).put("queried_at", System.currentTimeMillis());
     }
     static Boolean screenOff(Context c) {
         Boolean interactive = null;

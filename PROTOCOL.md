@@ -11,7 +11,7 @@
   "sender_id": "alice",
   "target_id": "bob",
   "action": "shell",
-  "params": { "command": "id", "root": false, "timeout_seconds": 20 }
+  "params": { "command": "id", "timeout_seconds": 20 }
 }
 ```
 
@@ -24,7 +24,7 @@ action 可选：
 | get_installed_apps | 空对象；返回已安装的用户应用 | 
 | send_notification | title：1 到 128 字符；content：1 到 4096 字符；接收方必须开启发送授权 |
 | get_notifications | 空对象；接收方必须开启共享、通知共享并授予通知访问权限 |
-| shell | command：1 到 8192 字符；root、shizuku：布尔值，默认 false，不能同时为 true；timeout_seconds：1 到 30，默认 20 |
+| shell | command：1 到 8192 字符；timeout_seconds：1 到 30，默认 20；执行权限跟随接收手机的特权工作模式 |
 | set_app_suspended | package_name：合法包名，最多 255 字符；suspended：布尔值，true 暂停，false 恢复；执行方式由接收方选择 |
 
 返回 202，包含 `command_id`、`status`、`created_at` 和 `deadline_at`。服务端添加 `type: command` 后转发到目标 WebSocket。一个目标同时只允许一个未过期请求；离线不积压命令。
@@ -93,9 +93,15 @@ APK 使用 `POST /api/device/result`，不用依赖原 WebSocket 仍在线：
 
 `backend` 为 `device_owner`、`shizuku` 或 `root`。`suspended` 是执行后确认的实际状态；恢复时若仍被其他来源暂停，状态仍为 true，`note` 会说明。本机暂停共享开关默认关闭；接收方还需满足所选系统权限。系统拒绝、权限不足或未获取实际状态时回传 `failed`。
 
-## Shizuku Shell
+## Shell 工作模式
 
-当 `shizuku: true` 时，接收方必须开启 Shell、开启 Shizuku/Sui 授权开关，并已通过系统授权。与 `root: true` 互斥，不会自动降级或改用其他执行方式。结果增加 `backend`（app/root/shizuku）与 `shizuku_uid`（仅 Shizuku 有效，其他为 -1），原有输出和状态字段保持一致。
+接收手机必须开启共享及 Shell 总开关。发送端不提供权限选择，接收端以本机“特权工作模式”为准：无或 Dhizuku 使用普通应用权限；Shizuku / Sui 使用其启动身份；root 使用 `su -c`。Dhizuku 不用于任意 Shell。
+
+Railway 为兼容旧客户端仍接受 root/shizuku 布尔字段（默认 false，不能同时为 true），新客户端不发送，接收端也不据此选择权限。这些字段不能覆盖本机模式。双方需更新 APK；现有 Railway 可直接转发，无需变更。
+
+结果包含 `backend`（app/root/shizuku）、`work_mode`（none/dhizuku/shizuku/root）、`shizuku_uid`（仅 Shizuku 有效，其他为 -1），保留原有 root、输出与状态字段。root 表示使用 root 通道；Shizuku 启动身份用 UID 判断。选择 Shizuku 时授权或服务不可用则失败，不会改用其他权限。执行期间模式、共享开关、Shell 开关或 Shizuku 身份变化会尝试取消执行。
+
+设备状态新增 `work_mode`、`shell_backend` 和 `shizuku_uid`；兼容字段 `root_enabled` 表示共享和 Shell 已开启且本机选择 root，不再代表单独的 root 开关。
 
 ## 当前通知结果
 

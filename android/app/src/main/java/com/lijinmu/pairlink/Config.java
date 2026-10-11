@@ -30,8 +30,11 @@ final class Config {
         return "on".equals(mode) || "off".equals(mode) ? mode : "system";
     }
     static boolean shell(Context c) { return sharing(c) && prefs(c).getBoolean("shell", false); }
-    static boolean root(Context c) { return shell(c) && prefs(c).getBoolean("root", false); }
-    static boolean shizuku(Context c) { return sharing(c) && prefs(c).getBoolean("shizuku", false) && ShizukuBridge.granted(); }
+    static boolean shellAllowed(Context c, String mode, int uid) {
+        boolean shizuku = "shizuku".equals(mode);
+        return ShellPolicy.allowed(AppControl.mode(c), mode, shell(c),
+            !shizuku || ShizukuBridge.granted(), shizuku ? ShizukuBridge.uid() : -1, uid);
+    }
     static boolean validId(String s) { return s.matches("[A-Za-z0-9._-]{1,64}"); }
     static String normalize(String s) {
         s = s.trim();
