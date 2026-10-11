@@ -1,5 +1,22 @@
 package com.lijinmu.pairlink
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.unit.IntOffset
 import android.os.Build
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
@@ -14,6 +31,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -240,7 +258,6 @@ object PairLinkUi {
 @Composable
 private fun Screen(activity: MainActivity, ui: UiState) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    val tabs = listOf("概览", "查询", "操作", "设置")
     val listStates = listOf(
         rememberLazyListState(),
         rememberLazyListState(),
@@ -258,14 +275,66 @@ private fun Screen(activity: MainActivity, ui: UiState) {
     BackHandler(enabled = page == null && picker != null && !ui.busy && ui.dialog == null) { ui.appPicker = null }
     BackHandler(enabled = page == null && picker == null && selectedTab != 0 && ui.dialog == null && !ui.busy) { selectedTab = 0 }
     BackHandler(enabled = ui.busy) {}
-    if (page != null) {
-        key(page) { ResultScreen(activity, ui, page, onBack = { ui.resultPage = page.parent }) }
-        return
+    // The outgoing page retains its own snapshot until the transition completes.
+    // Dialogs are rendered once, outside the animated destinations.
+    val destination = UiDestination(page, if (page == null) picker else null)
+    Box(Modifier.fillMaxSize()) {
+        AnimatedContent(
+            targetState = destination,
+            contentKey = { it.route },
+            modifier = Modifier.fillMaxSize().clipToBounds(),
+            transitionSpec = { pageMotion(targetState.depth >= initialState.depth) },
+            label = "页面跳转",
+        ) { shown ->
+            val result = shown.page
+            val appPicker = shown.picker
+            when {
+                result != null -> ResultScreen(activity, ui, result, onBack = {
+                    if (!ui.busy && ui.resultPage === result) ui.resultPage = result.parent
+                })
+                appPicker != null -> AppPickerScreen(activity, ui, appPicker)
+                else -> MainScreen(activity, ui, selectedTab, { selectedTab = it; keyboard?.hide() }, listStates)
+            }
+        }
+        UiDialogs(ui)
     }
-    if (picker != null) {
-        AppPickerScreen(activity, ui, picker)
-        return
+}
+
+private data class UiDestination(val page: ResultPage?, val picker: AppPickerPage?) {
+    val depth: Int get() = page?.let { generateSequence(it) { parent -> parent.parent }.count() } ?: if (picker != null) 1 else 0
+    val route: String get() = when {
+        page != null -> "result:$depth:${page.title}:${page.device}"
+        picker != null -> "picker:${picker.blacklist}:${picker.screenshotBlacklist}:${picker.device}"
+        else -> "main"
     }
+}
+
+// Soft spring settling with a short fade, shared by navigation and disclosure.
+private fun pageMotion(forward: Boolean): ContentTransform {
+    val direction = if (forward) 1 else -1
+    return ((slideInHorizontally(
+        animationSpec = spring<IntOffset>(dampingRatio = 0.92f, stiffness = Spring.StiffnessMediumLow),
+        initialOffsetX = { direction * it / 5 },
+    ) + fadeIn(tween(220))) togetherWith
+        (slideOutHorizontally(
+            animationSpec = spring<IntOffset>(dampingRatio = 0.92f, stiffness = Spring.StiffnessMediumLow),
+            targetOffsetX = { -direction * it / 8 },
+        ) + fadeOut(tween(150))))
+}
+
+@Composable
+private fun Reveal(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(animationSpec = spring(dampingRatio = 0.92f, stiffness = Spring.StiffnessMediumLow), expandFrom = Alignment.Top) + fadeIn(tween(180)),
+        exit = shrinkVertically(animationSpec = spring(dampingRatio = 1f, stiffness = Spring.StiffnessMediumLow), shrinkTowards = Alignment.Top) + fadeOut(tween(120)),
+        label = "选项展开收起",
+    ) { content() }
+}
+
+@Composable
+private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, selectTab: (Int) -> Unit, listStates: List<LazyListState>) {
+    val tabs = listOf("概览", "查询", "操作", "设置")
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -276,7 +345,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                     TabRow(
                         tabs = tabs,
                         selectedTabIndex = selectedTab,
-                        onTabSelected = { selectedTab = it; keyboard?.hide() },
+                        onTabSelected = selectTab,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         minWidth = 56.dp,
                     )
@@ -284,14 +353,19 @@ private fun Screen(activity: MainActivity, ui: UiState) {
             )
         },
     ) { padding ->
-        key(selectedTab) {
+        AnimatedContent(
+            targetState = selectedTab,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = { pageMotion(targetState > initialState) },
+            label = "主页切换",
+        ) { shownTab ->
             LazyColumn(
-                state = listStates[selectedTab],
+                state = listStates[shownTab],
                 modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                when (selectedTab) {
+                when (shownTab) {
                     0 -> {
                         item {
                             Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
@@ -407,7 +481,7 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 )
                                 SwitchPreference(title = "后台状态通知", summary = "直接开关静默连接通知；关闭后仍尝试保持连接，但失去前台保活，更容易被系统回收", checked = ui.statusNotification, onCheckedChange = activity::changeStatusNotification)
                                 SwitchPreference(title = "指令定时通知", summary = "汇总对方向本机发起的指令；点按通知查看详情", checked = ui.commandSummary, onCheckedChange = activity::changeCommandSummary)
-                                if (ui.commandSummary) {
+                                Reveal(ui.commandSummary) {
                                     val intervals = listOf(15, 30, 60, 120, 360, 1440)
                                     OverlayDropdownPreference(
                                         title = "通知间隔",
@@ -464,8 +538,9 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                                 SwitchPreference(title = "允许对方执行 Shell 指令", summary = "执行权限跟随本机特权工作模式", checked = ui.shell, onCheckedChange = activity::changeShell)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(ui.privilegeStatus)
-                                    if (!ui.usageAllowed)
+                                    Reveal(!ui.usageAllowed) {
                                         Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
+                                    }
                                 }
                             }
                         }
@@ -474,7 +549,6 @@ private fun Screen(activity: MainActivity, ui: UiState) {
                 }
             }
         }
-        UiDialogs(ui)
     }
 }
 
@@ -488,9 +562,11 @@ private fun UiDialogs(ui: UiState) {
             onDismissRequest = { if (!waiting) ui.dialog = null },
         ) {
             if (dialog != null) {
-                if (waiting) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(16.dp))
+                Reveal(waiting) {
+                    Column {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(16.dp))
+                    }
                 }
                 key(dialog) {
                     SelectionContainer {
@@ -866,13 +942,17 @@ private fun ResultScreen(activity: MainActivity, ui: UiState, page: ResultPage, 
             if (page.cards.isEmpty()) {
                 item { Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) { Text(page.emptyMessage) } }
             }
-            items(page.cards) { card ->
+            itemsIndexed(page.cards, key = { index, card -> "${card.title}:${card.subtitle}:$index" }) { _, card ->
                 val clickable = if (card.detailFields != null) Modifier.clickable(enabled = !ui.busy) {
                     ui.resultPage = ResultPage("记录详情", page.device,
                         listOf(card.copy(fields = card.detailFields, body = card.detailBody, detailFields = null, detailBody = "")),
                         parent = page)
                 } else Modifier
-                Card(Modifier.fillMaxWidth().then(clickable), insideMargin = PaddingValues(20.dp)) {
+                Card(Modifier.animateItem(
+                    fadeInSpec = tween(180),
+                    placementSpec = spring(dampingRatio = 0.92f, stiffness = Spring.StiffnessMediumLow),
+                    fadeOutSpec = tween(120),
+                ).fillMaxWidth().then(clickable), insideMargin = PaddingValues(20.dp)) {
                     SelectionContainer {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(card.title, style = MiuixTheme.textStyles.title2, color = MiuixTheme.colorScheme.primary)
@@ -897,7 +977,6 @@ private fun ResultScreen(activity: MainActivity, ui: UiState, page: ResultPage, 
                 item { Text(page.note, Modifier.padding(horizontal = 8.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
             }
         }
-        UiDialogs(ui)
     }
 }
 
@@ -972,7 +1051,11 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
                     } }
                 }
                 items(visible, key = { it.packageName }) { app ->
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(Modifier.animateItem(
+                        fadeInSpec = tween(180),
+                        placementSpec = spring(dampingRatio = 0.92f, stiffness = Spring.StiffnessMediumLow),
+                        fadeOutSpec = tween(120),
+                    ).fillMaxWidth()) {
                         CheckboxPreference(
                             title = app.name,
                             summary = app.packageName + (if (app.protectedApp) "\nPairLink 本身已受保护" else "") + (if (app.pausedByPairLink) "\n由 PairLink 暂停" else "") + (if (!app.installed) "\n未安装，保留原黑名单记录" else ""),
@@ -997,6 +1080,5 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
                 }
             }
         }
-        UiDialogs(ui)
     }
 }
