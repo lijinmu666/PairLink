@@ -114,6 +114,7 @@ public final class MainActivity extends ComponentActivity {
         ui.setShell(Config.prefs(this).getBoolean("shell", false));
         ui.setScreenshots(Config.prefs(this).getBoolean("screenshots", false));
         ui.setScreenshotBlacklistCount(Config.screenshotBlacklist(this).size());
+        ui.setUsageSharing(Config.usageSharing(this));
         ui.setNotifications(Config.prefs(this).getBoolean("notifications", false));
         ui.setMedia(Config.prefs(this).getBoolean("media", false));
         ui.setSendNotifications(Config.prefs(this).getBoolean("send_notifications", false));
@@ -184,12 +185,14 @@ public final class MainActivity extends ComponentActivity {
         String setting = pendingPermission;
         pendingPermission = null;
         permissionSettingsOpened = false;
-        boolean granted = ("notifications".equals(setting) || "media".equals(setting))
+        boolean granted = "usage_sharing".equals(setting) ? DeviceQueries.usageAllowed(this)
+            : ("notifications".equals(setting) || "media".equals(setting))
             ? NotificationReaderService.hasAccess(this)
             : notificationAllowed("send_notifications".equals(setting) ? NotificationSender.CHANNEL_ID
                 : "command_summary".equals(setting) ? CommandSummaryWorker.CHANNEL_ID : "connection");
         if (!granted) { permissionToast("所需权限尚未授予，开关保持关闭"); return; }
         switch (setting) {
+            case "usage_sharing": changeUsageSharing(true); break;
             case "command_summary": changeCommandSummary(true); break;
             case "status_notification": changeStatusNotification(true); break;
             case "send_notifications": changeSendNotifications(true); break;
@@ -528,7 +531,34 @@ public final class MainActivity extends ComponentActivity {
             NotificationReaderService.ensureConnected(this);
         });
     }
-    public void usagePermission() { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); }
+    private boolean ensureUsagePermission() {
+        if (DeviceQueries.usageAllowed(this)) return true;
+        return guidePermission("usage_sharing", "需要授予 PairLink 应用使用情况访问权限，授权后返回继续开启",
+            new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+    }
+    public void changeUsageSharing(boolean checked) {
+        if (!checked) {
+            Config.prefs(this).edit().putBoolean("usage_sharing", false).apply();
+            if ("usage_sharing".equals(pendingPermission)) {
+                pendingPermission = null; permissionSettingsOpened = false;
+            }
+            refreshState(); return;
+        }
+        if (!ensureUsagePermission()) return;
+        ui.confirm("允许查看应用使用情况", "开启后，对方可以查询此手机过去 24 小时的应用使用记录和使用时长", "开启", () -> {
+            if (!ensureUsagePermission()) return;
+            Config.prefs(this).edit().putBoolean("usage_sharing", true).apply();
+            refreshState();
+        });
+    }
+    public void usagePermission() {
+        try {
+            startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+            permissionToast("需要授予 PairLink 应用使用情况访问权限");
+        } catch (ActivityNotFoundException e) {
+            ui.message("无法打开权限设置", "请在系统设置中手动授予应用使用情况访问权限");
+        }
+    }
     public void testConnection() { checkServerHealth(true); }
     public void refreshServerVersion() { checkServerHealth(false); }
     private void checkServerHealth(boolean testConnection) {

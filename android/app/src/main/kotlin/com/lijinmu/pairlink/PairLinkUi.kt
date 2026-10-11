@@ -88,6 +88,7 @@ class UiState {
     var sharing by mutableStateOf(false)
     var shell by mutableStateOf(false)
     var busy by mutableStateOf(false)
+    var usageSharing by mutableStateOf(false)
     var usageAllowed by mutableStateOf(false)
     var notificationAccess by mutableStateOf(false)
     var notificationTitle by mutableStateOf("")
@@ -515,6 +516,12 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
                                     selectedIndex = modes.indexOf(ui.appControlMode).coerceAtLeast(0),
                                     onSelectedIndexChange = { index -> activity.selectAppControlMode(modes[index]) },
                                 )
+                                SwitchPreference(title = "允许对方查看应用使用情况", summary = "共享过去 24 小时的应用使用记录和使用时长", checked = ui.usageSharing, onCheckedChange = activity::changeUsageSharing)
+                                Reveal(!ui.usageAllowed) {
+                                    Column(Modifier.padding(16.dp)) {
+                                        Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
+                                    }
+                                }
                                 Text(
                                     "恢复应用需使用暂停时的权限方式；Shizuku / Sui 还需保持原来的启动身份",
                                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
@@ -538,9 +545,6 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
                                 SwitchPreference(title = "允许对方执行 Shell 指令", summary = "执行权限跟随本机特权工作模式", checked = ui.shell, onCheckedChange = activity::changeShell)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(ui.privilegeStatus)
-                                    Reveal(!ui.usageAllowed) {
-                                        Action("开启应用使用情况访问权限", activity::usagePermission, primary = false)
-                                    }
                                 }
                             }
                         }

@@ -152,3 +152,7 @@ Railway 为兼容旧客户端仍接受 root/shizuku 布尔字段（默认 false�
 ## 无验证约定
 
 本版所有接口无身份验证。HTTP 回传中的 device_id 和连接中的设备 ID 均为客户端自报，不能证明身份。后续验证应覆盖 WebSocket 建连、提交、查询、回传四条路径。
+
+### 应用使用情况授权
+
+`get_recent_apps` 请求参数不变。接收端必须开启本机 `usage_sharing` 开关（默认 false）且具有系统应用使用情况访问权限，并保持共享连接开启；读取前和回传前检查。不满足条件返回失败原因，不返回应用使用记录。`get_installed_apps` 和 `get_status` 不受该开关控制。

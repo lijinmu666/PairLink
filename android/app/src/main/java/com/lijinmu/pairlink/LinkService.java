@@ -179,6 +179,7 @@ public final class LinkService extends Service {
                     CommandHistory.started(this, record, "app", -1);
                     result = NotificationSender.send(this, params.optString("title"), params.optString("content")); break;
                 case "get_recent_apps":
+                    checkUsageSharing();
                     int hours = params.optInt("hours", 1);
                     if (hours < 1 || hours > 24) throw new Exception("查询范围无效");
                     CommandHistory.started(this, record, "app", -1);
@@ -228,6 +229,7 @@ public final class LinkService extends Service {
                     throw new Exception("截图授权已关闭或权限已改变，未回传图片");
                 ScreenshotPolicy.check(result.optString("foreground_package"), Config.screenshotBlacklist(this));
             }
+            if ("get_recent_apps".equals(action)) checkUsageSharing();
             if ("get_media".equals(action)) MediaQueries.checkAllowed(this);
             if ("get_notifications".equals(action)) NotificationReaderService.checkAllowed(this);
             CommandHistory.finish(this, record, id, "completed", result, null);
@@ -239,6 +241,12 @@ public final class LinkService extends Service {
             returnResult(id, null, message);
         }
         finally { executingScreenshot = false; screenshotMode = null; screenshotUid = -1; executingShellMode = null; executingShellUid = -1; executingAppControl = false; executingAppBackend = null; busy.set(false); }
+    }
+    private void checkUsageSharing() throws Exception {
+        if (!Config.sharing(this) || !Config.usageSharing(this))
+            throw new Exception("对方未开启允许查看应用使用情况");
+        if (!DeviceQueries.usageAllowed(this))
+            throw new Exception("对方未授予应用使用情况访问权限");
     }
     private void returnResult(String id, JSONObject result, String error) {
         try {
