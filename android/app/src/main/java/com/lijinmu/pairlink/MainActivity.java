@@ -223,9 +223,9 @@ public final class MainActivity extends ComponentActivity {
     }
     private void confirmShell() {
         String mode = AppControl.mode(this);
-        ui.confirm("开启远程 Shell", "开启后，对方可以让此 APK 执行命令，执行权限跟随本机特权工作模式\n当前执行方式："
+        ui.confirm("开启远程 Shell", "开启后允许对方远程通过 PairLink 执行自定义指令。执行所使用的权限跟随本机特权工作模式\n当前执行方式："
             + ("app".equals(ShellPolicy.backend(mode)) ? "普通应用权限" : AppControl.label(mode))
-            + "\n第一版服务器没有身份验证，设备 ID 不代表身份\n仅在你愿意允许操作时开启", "开启", () -> {
+            + "\n 你已被警告使用，请确认理解风险后谨慎使用", "哦", () -> {
             if (!mode.equals(AppControl.mode(this)) || ("shizuku".equals(mode) && !ShizukuBridge.granted())) {
                 changeShell(true); return;
             }
@@ -244,7 +244,7 @@ public final class MainActivity extends ComponentActivity {
         }
         ui.confirm("警告",
             "root 权限是系统最高权限，使用不当可能造成数据泄露、系统损坏等后果\n\n"
-                + "推荐使用 Dhizuku 或者 Shell 权限\n你已被警告使用，请确认理解风险后谨慎使用",
+                + "推荐使用 Dhizuku 或者 Shizuku \n你已被警告使用，请确认理解风险后谨慎使用",
             "哦", () -> requestPrivilegeMode("root", false));
     }
     private void finishPrivilegeMode(String mode) {
@@ -276,7 +276,7 @@ public final class MainActivity extends ComponentActivity {
         if ("dhizuku".equals(mode)) {
             if (!DhizukuBridge.available(this)) {
                 pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
-                ui.message("Dhizuku 授权失败", "请先安装、激活并启动 Dhizuku，然后重新选择此模式");
+                ui.message("Dhizuku 授权失败", "请确认 Dhizuku 运行正常后正确为 PairLink 授予权限，然后重新选择");
                 return;
             }
             if (DhizukuBridge.granted(this)) { finishPrivilegeMode(mode); return; }
@@ -292,14 +292,14 @@ public final class MainActivity extends ComponentActivity {
         if ("shizuku".equals(mode)) {
             if (!ShizukuBridge.available()) {
                 pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
-                ui.message("Shizuku / Sui 授权失败", "请先启动 Shizuku 或启用 Sui，然后重新选择此模式");
+                ui.message("Shizuku / Sui 授权失败", "请确认 Shizuku 或 Sui 运行正常后正确为 PairLink 授予权限，然后重新选择");
                 return;
             }
             if (ShizukuBridge.granted()) { finishPrivilegeMode(mode); return; }
             try {
                 if (Shizuku.shouldShowRequestPermissionRationale()) {
                     pendingAppControl = false; pendingShell = false; pendingScreenshot = false;
-                    ui.message("Shizuku / Sui 授权失败", "权限已被拒绝，请在 Shizuku / Sui 管理器中允许 PairLink 后重试");
+                    ui.message("Shizuku / Sui 授权失败", "权限已被拒绝，请在 Shizuku 或 Sui 管理器中允许 PairLink 后重试");
                     return;
                 }
                 awaitingShizukuMode = true;
@@ -310,13 +310,13 @@ public final class MainActivity extends ComponentActivity {
             }
             return;
         }
-        busy = true; ui.setBusy(true); show("正在申请并验证 root 权限……");
+        busy = true; ui.setBusy(true); show("申请并验证 root 权限…");
         network.execute(() -> {
             String failure = null;
             try {
                 ShellRunner.Result result = new ShellRunner().run("id", true, 20, () -> request == modeRequestGeneration);
                 if (result.timedOut || result.cancelled || result.exitCode != 0 || !result.stdout.contains("uid=0"))
-                    failure = "root 权限未授予、申请超时或验证失败，请在 root 管理器中允许 PairLink";
+                    failure = "root 权限未授予超时";
             } catch (Exception e) { failure = "无法申请 root 权限：" + e.getMessage(); }
             String error = failure;
             runOnUiThread(() -> {
@@ -337,14 +337,14 @@ public final class MainActivity extends ComponentActivity {
         }
         String mode = AppControl.mode(this);
         if (!"root".equals(mode) && !"shizuku".equals(mode)) {
-            ui.message("截图权限", "请先在特权工作模式中选择 root 或 Shizuku / Sui 并授权\n无和 Dhizuku 模式暂不支持屏幕截图");
+            ui.message("截图权限", "请先在特权工作模式中选择 root 或 Shizuku / Sui 并授权\n无特权和 Dhizuku 模式不支持屏幕截图");
             return;
         }
         requestPrivilegeMode(mode, false, false, true);
     }
     private void confirmScreenshot() {
         String mode = AppControl.mode(this);
-        ui.confirm("允许对方屏幕截图", "开启后，对方可以请求此手机当前屏幕的截图\n截图前后检查前台应用，命中截图黑名单或无法确认时拒绝\n截图经服务器传给对方，服务器查询结果中的图片最多保留 10 分钟\n息屏或锁屏时不截图", "开启", () -> {
+        ui.confirm("允许对方屏幕截图", "开启后允许对方请求本设备当前屏幕的截图\n截图会检查前台应用，处于黑名单的应用或无法确认时拒绝，息屏或锁屏时不截图\n截图经服务器传给对方，服务器查询结果中的图片最多保留 10 分钟\n可能造成信息泄露等风险。你已被警告使用，请确认理解风险后谨慎使用", "开启", () -> {
             if (!mode.equals(AppControl.mode(this)) || !ScreenshotQueries.ready(this, mode)) { changeScreenshots(true); return; }
             SharedPreferences prefs = Config.prefs(this);
             prefs.edit().putBoolean("screenshots", true).putLong("screenshot_revision", prefs.getLong("screenshot_revision", 0) + 1).apply();
