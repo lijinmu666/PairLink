@@ -92,14 +92,19 @@ public final class CommandSummaryWorker extends Worker {
             }
             if (!SummaryWindow.due(previous, now, interval(c))) return Result.success();
             try {
+                long from = SummaryWindow.from(previous, now);
+                long count = CommandHistory.countIncoming(c, from, now);
+                if (count == 0) {
+                    if (stillEnabled(c, token))
+                        Config.prefs(c).edit().putLong("command_summary_since", now).apply();
+                    return Result.success();
+                }
                 createChannel(c);
                 NotificationManager manager = c.getSystemService(NotificationManager.class);
                 NotificationChannel channel = manager.getNotificationChannel(CHANNEL_ID);
                 if (!manager.areNotificationsEnabled() || channel == null || channel.getImportance() == NotificationManager.IMPORTANCE_NONE
                     || (Build.VERSION.SDK_INT >= 33 && c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED))
                     return Result.success(); // Keep the window until notifications become available.
-                long from = SummaryWindow.from(previous, now);
-                long count = CommandHistory.countIncoming(c, from, now);
                 String text = "对方在过去 " + SummaryWindow.elapsedLabel(from, now) + "内向本设备发起了 " + count + " 次指令，点按查看详情";
                 Intent intent = new Intent(c, MainActivity.class).setAction(OPEN_HISTORY)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
