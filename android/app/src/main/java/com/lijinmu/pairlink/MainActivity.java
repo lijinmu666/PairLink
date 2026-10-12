@@ -25,6 +25,8 @@ public final class MainActivity extends ComponentActivity {
     private volatile int modeRequestGeneration;
     private String pendingPermission;
     private boolean permissionSettingsOpened;
+    private boolean appListPrompted;
+    private String appListContinuation;
     private boolean pendingAppControl;
     private boolean pendingShell;
     private boolean pendingScreenshot;
@@ -67,6 +69,10 @@ public final class MainActivity extends ComponentActivity {
         super.onCreate(b);
         Config.prefs(this).edit().remove("root").remove("shizuku").apply();
         if (b != null) { pendingPermission = b.getString("pending_permission"); permissionSettingsOpened = pendingPermission != null; }
+        if (b != null) {
+            appListPrompted = b.getBoolean("app_list_prompted");
+            appListContinuation = b.getString("app_list_continuation");
+        }
         Shizuku.addRequestPermissionResultListener(shizukuPermissionResult);
         ui.setServer(Config.server(this)); ui.setOwn(Config.own(this)); ui.setPeer(Config.peer(this));
         refreshState();
@@ -91,6 +97,7 @@ public final class MainActivity extends ComponentActivity {
     private void refreshAccessPermissions() {
         ui.setStatusNotification(Config.statusNotification(this));
         ui.setUsageAllowed(DeviceQueries.usageAllowed(this));
+        ui.setAppListPermissionNeeded(AppListAccess.needed(this));
         ui.setNotificationAccess(NotificationReaderService.hasAccess(this));
         boolean dhizukuGranted = DhizukuBridge.granted(this);
         boolean dhizuku = "dhizuku".equals(AppControl.mode(this)) && dhizukuGranted;
@@ -185,13 +192,19 @@ public final class MainActivity extends ComponentActivity {
         String setting = pendingPermission;
         pendingPermission = null;
         permissionSettingsOpened = false;
-        boolean granted = "usage_sharing".equals(setting) ? DeviceQueries.usageAllowed(this)
+        boolean granted = "app_list".equals(setting) ? !AppListAccess.needed(this)
+            : "usage_sharing".equals(setting) ? DeviceQueries.usageAllowed(this)
             : ("notifications".equals(setting) || "media".equals(setting))
             ? NotificationReaderService.hasAccess(this)
             : notificationAllowed("send_notifications".equals(setting) ? NotificationSender.CHANNEL_ID
                 : "command_summary".equals(setting) ? CommandSummaryWorker.CHANNEL_ID : "connection");
-        if (!granted) { permissionToast("所需权限尚未授予，开关保持关闭"); return; }
+        if (!granted) {
+            if ("app_list".equals(setting)) { appListContinuation = null; permissionToast("应用列表访问权限尚未授予"); }
+            else permissionToast("所需权限尚未授予，开关保持关闭");
+            return;
+        }
         switch (setting) {
+            case "app_list": finishAppListPermission(); break;
             case "usage_sharing": changeUsageSharing(true); break;
             case "command_summary": changeCommandSummary(true); break;
             case "status_notification": changeStatusNotification(true); break;
@@ -391,16 +404,55 @@ public final class MainActivity extends ComponentActivity {
         return !picker.getBlacklist() && picker.getServer().equals(Config.server(this)) && picker.getSender().equals(Config.own(this))
             && picker.getDevice().equals(Config.peer(this));
     }
+    public void requestAppListPermission() { requestAppListPermission(null); }
+    private void requestAppListPermission(String continuation) {
+        if (!AppListAccess.needed(this)) { appListContinuation = continuation; finishAppListPermission(); return; }
+        appListPrompted = true;
+        ui.confirm("应用列表访问权限", "此系统需要额外授权才能读取已安装应用\n用于向对方展示应用列表，以及管理本机暂停和截图黑名单\n点击确认后才会申请系统权限，拒绝时无法完整读取列表", "确认", () -> {
+            appListContinuation = continuation;
+            if (!AppListAccess.needed(this)) { finishAppListPermission(); return; }
+            if (AppListAccess.runtime(this) && !shouldShowRequestPermissionRationale(AppListAccess.PERMISSION)
+                && Config.prefs(this).getBoolean("app_list_requested", false)) {
+                openAppListSettings(); return;
+            }
+            if (!AppListAccess.runtime(this)) { openAppListSettings(); return; }
+            Config.prefs(this).edit().putBoolean("app_list_requested", true).apply();
+            try { requestPermissions(new String[]{AppListAccess.PERMISSION}, AppListAccess.REQUEST); }
+            catch (RuntimeException e) { openAppListSettings(); }
+        });
+    }
+    private void openAppListSettings() {
+        guidePermission("app_list", "请在系统权限管理中允许 PairLink 获取应用列表",
+            new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + getPackageName())));
+    }
+    private void finishAppListPermission() {
+        refreshAccessPermissions();
+        if (AppListAccess.needed(this)) { appListContinuation = null; return; }
+        String continuation = appListContinuation; appListContinuation = null;
+        if ("pause_blacklist".equals(continuation)) openLocalBlacklist(false);
+        else if ("screenshot_blacklist".equals(continuation)) openLocalBlacklist(true);
+    }
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        if (code != AppListAccess.REQUEST) return;
+        refreshAccessPermissions();
+        if (!AppListAccess.needed(this)) finishAppListPermission();
+        else { appListContinuation = null; ui.message("应用列表权限未授予", "尚未获得应用列表访问权限\n可在本机设置页重新申请，或到系统应用权限管理中授权"); }
+    }
     public void openPauseBlacklist() { openLocalBlacklist(false); }
     public void openScreenshotBlacklist() { openLocalBlacklist(true); }
     private void openLocalBlacklist(boolean screenshot) {
         if (busy) { toast("请等待当前请求完成"); return; }
+        if (AppListAccess.needed(this)) {
+            requestAppListPermission(screenshot ? "screenshot_blacklist" : "pause_blacklist"); return;
+        }
         AppPickerPage picker = ui.getAppPicker();
         Set<String> chosen = picker != null && picker.getBlacklist() && picker.getScreenshotBlacklist() == screenshot
             ? new HashSet<>(ui.getSelectedPeerApps()) : screenshot ? Config.screenshotBlacklist(this) : Config.pauseBlacklist(this);
         busy = true; ui.setBusy(true); show("正在加载本机应用……");
         network.execute(() -> {
             try {
+                AppListAccess.check(this);
                 JSONArray apps = new JSONArray();
                 Set<String> installed = new HashSet<>();
                 for (ApplicationInfo app : getPackageManager().getInstalledApplications(0)) {
@@ -414,6 +466,7 @@ public final class MainActivity extends ComponentActivity {
                     if (installed.contains(pkg) || (!screenshot && getPackageName().equals(pkg))) continue;
                     apps.put(new JSONObject().put("package_name", pkg).put("app_name", pkg).put("installed", false));
                 }
+                AppListAccess.check(this);
                 runOnUiThread(() -> { if (!isDestroyed()) ui.showLocalBlacklist(apps, chosen, Config.own(this), getPackageName(), screenshot); });
             } catch (Exception e) { show("加载本机应用失败：" + e.getMessage()); }
             finally { busy = false; runOnUiThread(() -> ui.setBusy(false)); }
@@ -800,12 +853,16 @@ public final class MainActivity extends ComponentActivity {
         refreshState();
         NotificationReaderService.ensureConnected(this);
         finishPermissionSettings();
+        if (!appListPrompted && AppListAccess.needed(this) && ui.getDialog() == null && !busy)
+            requestAppListPermission();
         permissionHandler.removeCallbacks(permissionRefresh);
         permissionHandler.postDelayed(permissionRefresh, 1000);
     }
     @Override public void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         if (pendingPermission != null) out.putString("pending_permission", pendingPermission);
+        out.putBoolean("app_list_prompted", appListPrompted);
+        if (appListContinuation != null) out.putString("app_list_continuation", appListContinuation);
     }
     @Override public void onPause() {
         permissionHandler.removeCallbacks(permissionRefresh);

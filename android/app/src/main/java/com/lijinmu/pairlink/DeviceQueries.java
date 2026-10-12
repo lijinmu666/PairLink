@@ -96,6 +96,7 @@ final class DeviceQueries {
         return new JSONObject().put("package_name", pkg).put("app_name", name).put("observed_at", latest).put("permission_required", false);
     }
     static JSONObject installedApps(Context c) throws Exception {
+        AppListAccess.check(c);
         JSONArray apps = new JSONArray();
         Set<String> tracked = new HashSet<>(AppControl.tracked(c));
         List<ApplicationInfo> installed = c.getPackageManager().getInstalledApplications(PackageManager.GET_META_DATA);
@@ -110,6 +111,7 @@ final class DeviceQueries {
                 .put("paused_by_pairlink", pausedByPairLink(app, tracked)));
             if (apps.toString().length() > 44000) { apps.remove(apps.length() - 1); truncated = true; break; }
         }
+        AppListAccess.check(c);
         return new JSONObject().put("apps", apps).put("count", apps.length()).put("truncated", truncated).put("queried_at", System.currentTimeMillis());
     }
     private static boolean pausedByPairLink(ApplicationInfo app, Set<String> tracked) {

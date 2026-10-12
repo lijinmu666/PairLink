@@ -89,6 +89,7 @@ class UiState {
     var shell by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var usageSharing by mutableStateOf(false)
+    var appListPermissionNeeded by mutableStateOf(false)
     var usageAllowed by mutableStateOf(false)
     var notificationAccess by mutableStateOf(false)
     var notificationTitle by mutableStateOf("")
@@ -548,6 +549,9 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
                                 SwitchPreference(title = "允许对方执行 Shell 指令", summary = "执行权限跟随本机特权工作模式", checked = ui.shell, onCheckedChange = activity::changeShell)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(ui.privilegeStatus)
+                                    Reveal(ui.appListPermissionNeeded) {
+                                        Action("授予应用列表访问权限", activity::requestAppListPermission, primary = false)
+                                    }
                                 }
                             }
                         }
