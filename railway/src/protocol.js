@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 export const SCREENSHOT_BYTES = 200000;
 export const SCREENSHOT_RESULT_CHARS = 300000;
 export const SCREENSHOT_TTL = 10 * 60 * 1000;
@@ -61,3 +62,4 @@ export function acceptResult(record, deviceId, body, now) {
   if (JSON.stringify(result).length > 48000) return null;
   return { ...record, status: body.ok ? 'completed' : 'failed', result, error, completed_at: now };
 }
+

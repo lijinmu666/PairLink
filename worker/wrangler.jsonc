@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pairlink",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "pairlink.lijinmu.com", "custom_domain": true }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "HUB", "class_name": "PairHub" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PairHub"] }],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "enabled": true, "invocation_logs": false }
+  }
+}
