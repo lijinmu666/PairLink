@@ -639,7 +639,15 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 
 @Composable
 private fun Input(value: String, change: (String) -> Unit, label: String, enabled: Boolean = true, singleLine: Boolean = true) {
-    TextField(value = value, onValueChange = change, modifier = Modifier.fillMaxWidth(), label = label, useLabelAsPlaceholder = true, singleLine = singleLine, enabled = enabled)
+    TextField(
+        value = value,
+        onValueChange = change,
+        modifier = Modifier.fillMaxWidth(),
+        label = label,
+        useLabelAsPlaceholder = false,
+        singleLine = singleLine,
+        enabled = enabled,
+    )
 }
 
 @Composable
