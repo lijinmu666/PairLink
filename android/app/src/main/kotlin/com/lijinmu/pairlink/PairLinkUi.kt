@@ -458,8 +458,8 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
             item {
                 Section("发送系统通知") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Input(ui.notificationTitle, { ui.notificationTitle = it }, "标题")
-                        Input(ui.notificationContent, { ui.notificationContent = it }, "内容", singleLine = false)
+                        Input(ui.notificationTitle, { ui.notificationTitle = it }, "通知标题")
+                        Input(ui.notificationContent, { ui.notificationContent = it }, "通知内容", singleLine = false)
                         Action("发送", activity::sendNotification, enabled = !ui.busy)
                     }
                 }
@@ -467,7 +467,7 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
             item {
                 Section("执行 Shell 指令") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Input(ui.script, { ui.script = it }, "输入 Shell 命令，例如 whoami", singleLine = false)
+                        Input(ui.script, { ui.script = it }, "Shell 指令", singleLine = false)
                         Text("执行权限跟随对方的特权工作模式；无或 Dhizuku 使用普通应用权限")
                         Action("执行", activity::executeShell, enabled = !ui.busy)
                     }
@@ -502,9 +502,9 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
                             Section("连接设置") {
                                 SwitchPreference(title = "开启共享连接", summary = "连接后默认允许查询应用列表和状态；关闭后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Input(ui.server, { ui.server = it }, "服务器 HTTPS 根地址", enabled = !ui.sharing)
-                                    Input(ui.own, { ui.own = it }, "自己的设备 ID", enabled = !ui.sharing)
-                                    Input(ui.peer, { ui.peer = it }, "对方的设备 ID", enabled = !ui.sharing)
+                                    Input(ui.server, { ui.server = it }, "服务器地址", enabled = !ui.sharing)
+                                    Input(ui.own, { ui.own = it }, "本机设备 ID", enabled = !ui.sharing)
+                                    Input(ui.peer, { ui.peer = it }, "对方设备 ID", enabled = !ui.sharing)
                                     Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
                                     Action("测试服务器连接", activity::testConnection, enabled = !ui.busy, primary = false)
                     }
@@ -1042,7 +1042,7 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text((if (page.blacklist) "本机设备：" else "对方设备：") + page.device, color = MiuixTheme.colorScheme.primary)
                 if (page.blacklist) Text(if (page.screenshotBlacklist) "勾选后保存\n前台应用在黑名单中时拒绝对方截图，可选择用户应用和系统应用" else "勾选后保存，阻止对方通过应用暂停功能暂停这些应用\n不会自动恢复已经暂停的应用", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Input(ui.appSearch, { ui.appSearch = it }, "搜索应用名或包名", enabled = !ui.busy)
+                Input(ui.appSearch, { ui.appSearch = it }, "搜索应用名称或包名", enabled = !ui.busy)
                 Text("共 ${page.apps.size} 个应用 · 显示 ${visible.size} 个 · 已选 ${ui.selectedPeerApps.size} 个",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
