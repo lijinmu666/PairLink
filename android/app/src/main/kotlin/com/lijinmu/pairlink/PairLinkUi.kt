@@ -34,7 +34,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -524,7 +528,7 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
                                 SwitchPreference(title = "开启共享连接", summary = "连接后默认允许查询应用列表和状态；关闭后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Input(ui.server, { ui.server = it }, "服务器地址", enabled = !ui.sharing)
-                                    Input(ui.apiKey, { ui.apiKey = it }, "API 密钥", enabled = !ui.sharing)
+                                    Input(ui.apiKey, { ui.apiKey = it }, "API 密钥", enabled = !ui.sharing, password = true)
                                     Input(ui.own, { ui.own = it }, "本机设备 ID", enabled = !ui.sharing)
                                     Input(ui.peer, { ui.peer = it }, "对方设备 ID", enabled = !ui.sharing)
                                     Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)
@@ -638,13 +642,15 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 }
 
 @Composable
-private fun Input(value: String, change: (String) -> Unit, label: String, enabled: Boolean = true, singleLine: Boolean = true) {
+private fun Input(value: String, change: (String) -> Unit, label: String, enabled: Boolean = true, singleLine: Boolean = true, password: Boolean = false) {
     TextField(
         value = value,
         onValueChange = change,
         modifier = Modifier.fillMaxWidth(),
         label = label,
         useLabelAsPlaceholder = false,
+        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = if (password) KeyboardOptions(keyboardType = KeyboardType.Password) else KeyboardOptions.Default,
         singleLine = singleLine,
         enabled = enabled,
     )
