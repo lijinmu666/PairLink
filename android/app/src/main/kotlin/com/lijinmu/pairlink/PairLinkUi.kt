@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import org.json.JSONObject
 import org.json.JSONArray
@@ -1024,6 +1025,15 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
     val search = ui.appSearch.trim()
     val visible = page.apps.filter { search.isEmpty() || it.name.contains(search, ignoreCase = true) || it.packageName.contains(search, ignoreCase = true) }
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    var searchExpanded by remember(page.server, page.sender, page.device, page.blacklist, page.screenshotBlacklist) { mutableStateOf(false) }
+    val setSearchExpanded: (Boolean) -> Unit = { expanded ->
+        searchExpanded = expanded
+        if (!expanded) {
+            focusManager.clearFocus()
+            keyboard?.hide()
+        }
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -1042,7 +1052,33 @@ private fun AppPickerScreen(activity: MainActivity, ui: UiState, page: AppPicker
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text((if (page.blacklist) "本机设备：" else "对方设备：") + page.device, color = MiuixTheme.colorScheme.primary)
                 if (page.blacklist) Text(if (page.screenshotBlacklist) "勾选后保存\n前台应用在黑名单中时拒绝对方截图，可选择用户应用和系统应用" else "勾选后保存，阻止对方通过应用暂停功能暂停这些应用\n不会自动恢复已经暂停的应用", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Input(ui.appSearch, { ui.appSearch = it }, "搜索应用名称或包名", enabled = !ui.busy)
+                SearchBar(
+                    modifier = Modifier.fillMaxWidth(),
+                    insideMargin = androidx.compose.ui.unit.DpSize(0.dp, 0.dp),
+                    expanded = searchExpanded,
+                    onExpandedChange = setSearchExpanded,
+                    inputField = {
+                        InputField(
+                            query = ui.appSearch,
+                            onQueryChange = { ui.appSearch = it },
+                            onSearch = { setSearchExpanded(false) },
+                            expanded = searchExpanded,
+                            onExpandedChange = setSearchExpanded,
+                            label = "搜索应用名称或包名",
+                            enabled = !ui.busy,
+                        )
+                    },
+                    outsideEndAction = {
+                        Text(
+                            text = "取消",
+                            modifier = Modifier.padding(start = 12.dp).clickable(enabled = !ui.busy) {
+                                ui.appSearch = ""
+                                setSearchExpanded(false)
+                            },
+                            color = MiuixTheme.colorScheme.primary,
+                        )
+                    },
+                ) { }
                 Text("共 ${page.apps.size} 个应用 · 显示 ${visible.size} 个 · 已选 ${ui.selectedPeerApps.size} 个",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
