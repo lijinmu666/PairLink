@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { CommandStore, DAY } from './store.js';
 import { validId, validCommandId, validateCommand, acceptResult, SCREENSHOT_RESULT_CHARS } from './protocol.js';
@@ -23,12 +23,19 @@ async function jsonBody(req, maxChars) {
   catch { throw Object.assign(new Error('invalid JSON'), { status: 400 }); }
 }
 
-export function createPairLink({ databasePath = './data/pairlink.sqlite', now = Date.now, deadlineMs = 45000, heartbeatMs = 30000 } = {}) {
+export function createPairLink({ databasePath = './data/pairlink.sqlite', now = Date.now, deadlineMs = 45000, heartbeatMs = 30000, apiKey = '' } = {}) {
   const store = new CommandStore(databasePath);
   const devices = new Map();
   const wss = new WebSocketServer({ noServer: true, maxPayload: 240000, perMessageDeflate: false });
   let stopping = false;
   store.sweep(now());
+
+  function hasValidApiKey(provided) {
+    if (!apiKey || typeof provided !== 'string') return false;
+    const expected = Buffer.from(apiKey, 'utf8');
+    const actual = Buffer.from(provided, 'utf8');
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  }
 
   function saveResult(id, deviceId, body) {
     const record = store.get(id);
@@ -45,6 +52,9 @@ export function createPairLink({ databasePath = './data/pairlink.sqlite', now = 
       const path = url.pathname;
       if (stopping) return reply(res, { error: 'server stopping' }, 503);
       if (path === '/health') return reply(res, { ok: true, service: 'PairLink', version: '0.2.0', backend: 'railway' });
+      if (path.startsWith('/api/') && !hasValidApiKey(req.headers['x-api-key']))
+        return reply(res, { error: apiKey ? 'invalid API key' : 'API key not configured' }, apiKey ? 401 : 503);
+      if (path === '/api/health') return reply(res, { ok: true, service: 'PairLink', version: '0.2.0', backend: 'railway' });
       if (path === '/api/device/ws') return reply(res, { error: 'websocket required' }, 426);
       if (path === '/api/commands' && req.method === 'POST') {
         const input = validateCommand(await jsonBody(req, 12000));
@@ -108,6 +118,10 @@ export function createPairLink({ databasePath = './data/pairlink.sqlite', now = 
     const id = url.searchParams.get('device_id');
     if (stopping || url.pathname !== '/api/device/ws' || !validId(id)) {
       socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+    if (!hasValidApiKey(req.headers['x-api-key'])) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
     wss.handleUpgrade(req, socket, head, ws => {

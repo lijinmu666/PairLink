@@ -19,6 +19,7 @@ final class Config {
     }
     static String peer(Context c) { return prefs(c).getString("peer", ""); }
     static String server(Context c) { return prefs(c).getString("server", ""); }
+    static String apiKey(Context c) { return prefs(c).getString("api_key", ""); }
     static boolean sharing(Context c) { return prefs(c).getBoolean("sharing", false); }
     static boolean usageSharing(Context c) { return prefs(c).getBoolean("usage_sharing", false); }
     static boolean statusNotification(Context c) { return prefs(c).getBoolean("status_notification", true); }

@@ -66,6 +66,7 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 class UiState {
     var server by mutableStateOf("")
+    var apiKey by mutableStateOf("")
     var serverVersion by mutableStateOf("未获取，点击刷新")
     var serverVersionLoading by mutableStateOf(false)
     var own by mutableStateOf("")
@@ -504,6 +505,7 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
                                 SwitchPreference(title = "开启共享连接", summary = "连接后默认允许查询应用列表和状态；关闭后停止共享", checked = ui.sharing, onCheckedChange = activity::changeSharing)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Input(ui.server, { ui.server = it }, "服务器地址", enabled = !ui.sharing)
+                                    Input(ui.apiKey, { ui.apiKey = it }, "API 密钥", enabled = !ui.sharing)
                                     Input(ui.own, { ui.own = it }, "本机设备 ID", enabled = !ui.sharing)
                                     Input(ui.peer, { ui.peer = it }, "对方设备 ID", enabled = !ui.sharing)
                                     Action("保存连接设置", activity::saveSettings, enabled = !ui.sharing)

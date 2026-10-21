@@ -1,5 +1,7 @@
 # PairLink v1 协议
 
+所有 `/api/*` HTTP 请求和 WSS 握手需携带 `X-API-Key: <共享密钥>`。Railway 环境变量名为 `PAIRLINK_API_KEY`，未配置时服务不会启动。公开的 `GET /health` 仅供 Railway 健康检查，客户端使用受保护的 `GET /api/health` 验证连接与密钥。
+
 连接：`wss://服务器/api/device/ws?device_id=alice`。每个设备只保留最新连接；文本 `ping` 得到 `pong`。
 
 ## 提交请求
@@ -149,9 +151,11 @@ Railway 为兼容旧客户端仍接受 root/shizuku 布尔字段（默认 false�
 
 服务器时间为 Unix 毫秒。APK 时钟明显不准时可能误判指令已经过期。
 
-## 无验证约定
+## API 密钥验证
 
-本版所有接口无身份验证。HTTP 回传中的 device_id 和连接中的设备 ID 均为客户端自报，不能证明身份。后续验证应覆盖 WebSocket 建连、提交、查询、回传四条路径。
+所有 `/api/*` HTTP 接口和 WebSocket 握手都要求请求头 `X-API-Key`。Railway 使用环境变量 `PAIRLINK_API_KEY`，启动时未配置会直接失败。公开的 `GET /health` 仅供 Railway 健康检查；客户端测试连接及读取版本使用受保护的 `GET /api/health`。
+
+客户端在“连接设置”中输入并保存密钥到本机应用偏好，HTTP 和 WSS 请求均从本机配置读取。两台手机必须填写相同的密钥。密钥不写入仓库源码；由于客户端需要使用它，能够控制设备或逆向 APK 的人仍可能提取客户端密钥。共享密钥也不区分设备身份，任何知道密钥的人都能尝试以任意设备 ID 发起请求。
 
 ### 应用使用情况授权
 

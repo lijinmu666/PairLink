@@ -74,7 +74,7 @@ public final class MainActivity extends ComponentActivity {
             appListContinuation = b.getString("app_list_continuation");
         }
         Shizuku.addRequestPermissionResultListener(shizukuPermissionResult);
-        ui.setServer(Config.server(this)); ui.setOwn(Config.own(this)); ui.setPeer(Config.peer(this));
+        ui.setServer(Config.server(this)); ui.setApiKey(Config.apiKey(this)); ui.setOwn(Config.own(this)); ui.setPeer(Config.peer(this));
         refreshState();
         Config.prefs(this).registerOnSharedPreferenceChangeListener(preferenceListener);
         PairLinkUi.render(this, ui);
@@ -623,7 +623,7 @@ public final class MainActivity extends ComponentActivity {
         if (testConnection) show("正在测试服务器连接……");
         network.execute(() -> {
             try {
-                JSONObject response = Net.request(this, base, "/health", null);
+                JSONObject response = Net.request(this, base, "/api/health", null);
                 Object rawVersion = response.opt("version");
                 String version = rawVersion instanceof String ? ((String) rawVersion).trim() : "";
                 String displayedVersion = version.isEmpty() ? "未提供版本号" : version;
@@ -745,24 +745,27 @@ public final class MainActivity extends ComponentActivity {
         try {
             okhttp3.HttpUrl url = okhttp3.HttpUrl.get(Config.server(this));
             return "https".equals(url.scheme()) && url.encodedPath().equals("/") && url.query() == null && url.fragment() == null
-                && url.username().isEmpty() && url.password().isEmpty() && Config.validId(Config.own(this))
+                && url.username().isEmpty() && url.password().isEmpty() && !Config.apiKey(this).isEmpty()
+                && Config.validId(Config.own(this))
                 && Config.validId(Config.peer(this)) && !Config.own(this).equals(Config.peer(this));
         } catch (Exception e) { return false; }
     }
     public void saveSettings() {
         if (busy) { toast("请等待当前请求完成"); return; }
         if (Config.sharing(this)) { toast("请先暂停共享再修改连接设置"); return; }
-        String s = Config.normalize(ui.getServer()), a = ui.getOwn().trim(), b = ui.getPeer().trim();
+        String s = Config.normalize(ui.getServer()), k = ui.getApiKey().trim(), a = ui.getOwn().trim(), b = ui.getPeer().trim();
         try {
             okhttp3.HttpUrl url = okhttp3.HttpUrl.get(s);
             if (!"https".equals(url.scheme()) || !url.encodedPath().equals("/") || url.query() != null || url.fragment() != null
-                || !url.username().isEmpty() || !url.password().isEmpty() || !Config.validId(a) || !Config.validId(b) || a.equals(b)) throw new Exception();
-            boolean connectionChanged = !s.equals(Config.server(this)) || !a.equals(Config.own(this)) || !b.equals(Config.peer(this));
-            Config.prefs(this).edit().putString("server", s).putString("own", a).putString("peer", b).apply();
+                || !url.username().isEmpty() || !url.password().isEmpty() || k.isEmpty() || k.length() > 256
+                || !Config.validId(a) || !Config.validId(b) || a.equals(b)) throw new Exception();
+            boolean connectionChanged = !s.equals(Config.server(this)) || !k.equals(Config.apiKey(this))
+                || !a.equals(Config.own(this)) || !b.equals(Config.peer(this));
+            Config.prefs(this).edit().putString("server", s).putString("api_key", k).putString("own", a).putString("peer", b).apply();
             if (connectionChanged) CommandSummaryWorker.restartWindow(this);
             ui.clearAppPicker();
             toast("已保存");
-        } catch (Exception e) { toast("填写服务器 HTTPS 根地址；双方 ID 必须不同，只含字母、数字、点、下划线或连字符"); }
+        } catch (Exception e) { toast("填写服务器 HTTPS 根地址和 API 密钥；双方 ID 必须不同，只含字母、数字、点、下划线或连字符"); }
     }
     private void send(String action, JSONObject params) {
         send(action, params, false);

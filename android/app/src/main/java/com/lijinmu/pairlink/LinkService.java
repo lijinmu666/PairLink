@@ -103,7 +103,8 @@ public final class LinkService extends Service {
         if (destroyed || !Config.sharing(this) || socket != null || !base.startsWith("https://")) return;
         int g = ++generation;
         lastPong = SystemClock.elapsedRealtime();
-        Request request = new Request.Builder().url("wss://" + base.substring(8) + "/api/device/ws?device_id=" + Config.own(this)).build();
+        Request request = new Request.Builder().url("wss://" + base.substring(8) + "/api/device/ws?device_id=" + Config.own(this))
+            .header("X-API-Key", Config.apiKey(this)).build();
         socket = Net.client().newWebSocket(request, new WebSocketListener() {
             @Override public void onOpen(WebSocket ws, Response r) { handler.post(() -> { if (g == generation) { state("在线"); Config.log(LinkService.this, "连接成功"); } }); }
             @Override public void onMessage(WebSocket ws, String text) { handler.post(() -> { if (g == generation) receive(text); }); }

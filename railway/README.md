@@ -7,7 +7,7 @@ PairLink 的服务端，部署在 Railway。Node.js 24 + WebSocket + SQLite；�
 1. New Project → Deploy from GitHub repo，选择 `lijinmu666/PairLink`。
 2. 服务 Settings → Source，Root Directory 设置为 `/railway`，保存后重新部署。
 3. 使用目录中的 Dockerfile 自动构建，启动命令已包含在 Dockerfile 中；不用编译 Android。
-4. 给这个服务添加 Volume，挂载到 `/data`；服务变量添加 `DATA_DIR=/data`。SQLite 和 WAL 文件都放在这个目录。未挂载 Volume 时，重部署可能丢失结果记录。
+4. 给这个服务添加 Volume，挂载到 `/data`；服务变量添加 `DATA_DIR=/data` 和 `PAIRLINK_API_KEY`。API 密钥只在 Railway 环境变量中保存，不放进仓库；两台客户端连接设置中填写同一个密钥。
 5. Healthcheck Path 设置为 `/health`。保持单实例（1 replica），关闭 Serverless/自动休眠。设备长连接必须连到同一个进程，不能多实例运行。
 6. Settings → Networking → Generate Domain，获得 HTTPS 地址。端口使用 Railway 自动提供的 `PORT`，程序监听 `0.0.0.0`。
 7. 打开 `https://生成的域名/health`，应返回 `ok: true`、`backend: railway`。
@@ -32,7 +32,8 @@ npm start
 
 ## 接口与保留规则
 
-- `GET /health`
+- `GET /health`：Railway 健康检查，不需要 API 密钥
+- `GET /api/health`：客户端连接测试，需要 API 密钥
 - `GET /api/device/ws?device_id=...`：WebSocket，文本 `ping` → `pong`
 - `POST /api/commands`：提交指令，返回指令 ID 和状态
 - `GET /api/commands/:id`：查询执行结果
@@ -43,11 +44,11 @@ npm start
 
 同一目标设备只能有一条待完成指令；超时为 45 秒，指令和结果保留 24 小时，最多保存 1000 条。SQLite 放到 Volume 后可跨重启保存，在线连接不持久化。SQLite 清理删除的是记录，数据库文件可能保留可复用的空间。
 
-此版本没有账号、OAuth 或 API Key，设备 ID 只用于路由，不构成身份验证。日志不打印 Shell 命令、通知正文或结果内容。
+所有 `/api/*` HTTP 接口和设备 WebSocket 握手都要求 `X-API-Key`，缺失或不匹配时返回 401。部署启动时必须配置 `PAIRLINK_API_KEY`；`/health` 只用于 Railway 健康检查，公开返回服务状态，客户端通过受保护的 `/api/health` 测试密钥。设备 ID 仍是客户端填写的路由标识，共享密钥持有者可以使用任意设备 ID。日志不打印密钥、Shell 命令、通知正文或结果内容。
 
 ## 本次验证
 
-8 项集成测试和语法检查通过：协议一致性、7 种指令往返、心跳、忙碌/错误设备/重复结果拒绝、同 ID 新连接替换、重启持久化、45 秒超时及 24 小时清理、无响应连接检测、无效与超大请求拒绝。尚未在你的 Railway 账号部署，也未测试中国内地手机直连。
+10 项集成测试和语法检查通过，覆盖 API 密钥对 HTTP 和 WebSocket 的校验、未配置密钥时拒绝业务请求、Railway 健康检查可用，以及现有指令往返、心跳、拒绝非法和重复结果、重启持久化、超时与清理、连接检测和截图传输。尚未在你的 Railway 账号实机验证安卓客户端。
 
 
 

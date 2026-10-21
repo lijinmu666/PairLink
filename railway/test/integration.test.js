@@ -10,26 +10,48 @@ import { DAY } from '../src/store.js';
 
 async function fixture(t, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'pairlink-test-'));
-  let app = createPairLink({ databasePath: join(dir, 'commands.sqlite'), ...options });
+  const apiKey = options.apiKey ?? 'test-api-key';
+  let app = createPairLink({ databasePath: join(dir, 'commands.sqlite'), ...options, apiKey });
   let address = await app.listen(0, '127.0.0.1');
   const sockets = [];
   t.after(async () => { for (const ws of sockets) ws.terminate(); await app.close(); await rm(dir, { recursive: true, force: true }); });
   return {
-    async request(path, body, raw = false) {
-      const r = await fetch(`http://127.0.0.1:${address.port}${path}`, body === undefined ? {} : {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: raw ? body : JSON.stringify(body),
-      });
+    async request(path, body, raw = false, requestKey = apiKey) {
+      const headers = {};
+      if (requestKey !== null) headers['x-api-key'] = requestKey;
+      const request = { headers };
+      if (body !== undefined) {
+        request.method = 'POST';
+        headers['content-type'] = 'application/json';
+        request.body = raw ? body : JSON.stringify(body);
+      }
+      const r = await fetch(`http://127.0.0.1:${address.port}${path}`, request);
       return { status: r.status, body: await r.json() };
     },
-    async phone(id = 'bob', options = {}) {
-      const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/device/ws?device_id=${id}`, options);
+    async phone(id = 'bob', socketOptions = {}) {
+      const { apiKey: socketKey = apiKey, headers = {}, ...options } = socketOptions;
+      const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/device/ws?device_id=${id}`, {
+        ...options,
+        headers: { ...headers, ...(socketKey === null ? {} : { 'x-api-key': socketKey }) },
+      });
       sockets.push(ws);
       await once(ws, 'open');
       return ws;
     },
+    async rejectedPhone(id = 'bob', socketKey = null) {
+      const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/device/ws?device_id=${id}`, {
+        headers: socketKey === null ? {} : { 'x-api-key': socketKey },
+      });
+      sockets.push(ws);
+      return new Promise(resolve => {
+        ws.once('unexpected-response', (_request, response) => { response.resume(); resolve(response.statusCode); });
+        ws.once('open', () => resolve(101));
+        ws.once('error', () => {});
+      });
+    },
     async restart() {
       await app.close();
-      app = createPairLink({ databasePath: join(dir, 'commands.sqlite'), ...options });
+      app = createPairLink({ databasePath: join(dir, 'commands.sqlite'), ...options, apiKey });
       address = await app.listen(0, '127.0.0.1');
     },
   };
@@ -37,9 +59,27 @@ async function fixture(t, options = {}) {
 const input = (action = 'get_status', params = {}) => ({ sender_id: 'alice', target_id: 'bob', action, params });
 const received = ws => once(ws, 'message').then(([data]) => JSON.parse(data.toString()));
 
+test('API key protects HTTP and WebSocket routes while Railway health remains public', async t => {
+  const f = await fixture(t);
+  const unconfigured = await fixture(t, { apiKey: '' });
+  assert.equal((await unconfigured.request('/api/health', undefined, false, null)).status, 503);
+  assert.equal((await f.request('/health', undefined, false, null)).status, 200);
+  assert.equal((await f.request('/api/health', undefined, false, null)).status, 401);
+  assert.equal((await f.request('/api/health', undefined, false, 'wrong-key')).status, 401);
+  assert.equal((await f.request('/api/health')).status, 200);
+  assert.equal((await f.request('/api/commands', input(), false, null)).status, 401);
+  assert.equal((await f.request('/api/commands', input(), false, 'wrong-key')).status, 401);
+  assert.equal((await f.request('/api/device/result', { device_id: 'bob', command_id: '00000000-0000-4000-8000-000000000000', ok: true }, false, null)).status, 401);
+  assert.equal(await f.rejectedPhone('bob'), 401);
+  assert.equal(await f.rejectedPhone('bob', 'wrong-key'), 401);
+  const ws = await f.phone();
+  assert.equal(ws.readyState, WebSocket.OPEN);
+});
+
 test('Android heartbeat and every supported action round-trip via HTTP results', async t => {
   const f = await fixture(t);
   assert.equal((await f.request('/health')).body.ok, true);
+  assert.equal((await f.request('/api/health')).body.ok, true);
   const ws = await f.phone();
   const pong = once(ws, 'message'); ws.send('ping');
   assert.equal((await pong)[0].toString(), 'pong');

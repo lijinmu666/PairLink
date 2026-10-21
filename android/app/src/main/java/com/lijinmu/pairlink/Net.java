@@ -14,7 +14,9 @@ final class Net {
 
     static OkHttpClient client() { return client; }
     static JSONObject request(Context c, String base, String path, JSONObject body) throws Exception {
-        Request.Builder r = new Request.Builder().url(base + path);
+        String apiKey = Config.apiKey(c);
+        if (apiKey.isEmpty()) throw new Exception("请先填写并保存 API 密钥");
+        Request.Builder r = new Request.Builder().url(base + path).header("X-API-Key", apiKey);
         if (body != null) r.post(RequestBody.create(body.toString(), MediaType.get("application/json; charset=utf-8")));
         try (Response response = client().newCall(r.build()).execute()) {
             String text = response.body() == null ? "{}" : response.body().string();
