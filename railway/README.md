@@ -14,6 +14,8 @@ PairLink 的服务端，部署在 Railway。Node.js 24 + WebSocket + SQLite；�
 
 两台手机先暂停共享，再把服务器地址改成同一个 Railway HTTPS 根地址（不带 `/health`），保存并重新开启共享。客户端使用系统 DNS，可直接测试连接。双方的 ID 和授权开关不需要更改。
 
+连接 GitHub 的 `main` 分支后，正常提交和推送到该分支会触发 Railway 自动部署。
+
 服务重启时手机会重连；尚未完成的指令不自动重发，最多等待 45 秒后超时，避免重复执行 Shell。
 
 ## 本地运行
