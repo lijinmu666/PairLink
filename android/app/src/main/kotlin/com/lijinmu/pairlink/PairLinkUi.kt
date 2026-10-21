@@ -350,16 +350,35 @@ private fun MainScreen(activity: MainActivity, ui: UiState, selectedTab: Int, se
             TopAppBar(
                 title = "PairLink",
                 largeTitle = "PairLink",
-                bottomContent = {
-                    TabRow(
-                        tabs = tabs,
-                        selectedTabIndex = selectedTab,
-                        onTabSelected = selectTab,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        minWidth = 56.dp,
-                    )
-                },
             )
+        },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = selectedTab == 0,
+                    onClick = { selectTab(0) },
+                    icon = OverviewNavIcon,
+                    label = tabs[0],
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 1,
+                    onClick = { selectTab(1) },
+                    icon = QueryNavIcon,
+                    label = tabs[1],
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { selectTab(2) },
+                    icon = ActionNavIcon,
+                    label = tabs[2],
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectTab(3) },
+                    icon = SettingsNavIcon,
+                    label = tabs[3],
+                )
+            }
         },
     ) { padding ->
         AnimatedContent(
@@ -1018,6 +1037,51 @@ private val BackArrow: ImageVector by lazy {
     }.build()
 }
 
+
+private val OverviewNavIcon: ImageVector by lazy {
+    ImageVector.Builder("OverviewNavIcon", 24.dp, 24.dp, 24f, 24f).apply {
+        path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
+            moveTo(4f, 4f); lineTo(10f, 4f); lineTo(10f, 10f); lineTo(4f, 10f); lineTo(4f, 4f)
+            moveTo(14f, 4f); lineTo(20f, 4f); lineTo(20f, 10f); lineTo(14f, 10f); lineTo(14f, 4f)
+            moveTo(4f, 14f); lineTo(10f, 14f); lineTo(10f, 20f); lineTo(4f, 20f); lineTo(4f, 14f)
+            moveTo(14f, 14f); lineTo(20f, 14f); lineTo(20f, 20f); lineTo(14f, 20f); lineTo(14f, 14f)
+        }
+    }.build()
+}
+
+private val QueryNavIcon: ImageVector by lazy {
+    ImageVector.Builder("QueryNavIcon", 24.dp, 24.dp, 24f, 24f).apply {
+        path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
+            moveTo(10f, 3f); lineTo(13f, 4f); lineTo(15f, 7f); lineTo(15f, 10f); lineTo(14f, 13f)
+            lineTo(11f, 15f); lineTo(8f, 15f); lineTo(5f, 13f); lineTo(4f, 10f); lineTo(4f, 7f)
+            lineTo(6f, 4f); lineTo(10f, 3f)
+            moveTo(13f, 13f); lineTo(20f, 20f)
+        }
+    }.build()
+}
+
+private val ActionNavIcon: ImageVector by lazy {
+    ImageVector.Builder("ActionNavIcon", 24.dp, 24.dp, 24f, 24f).apply {
+        path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
+            moveTo(4f, 4f); lineTo(20f, 4f); lineTo(20f, 20f); lineTo(4f, 20f); lineTo(4f, 4f)
+            moveTo(8f, 9f); lineTo(11f, 12f); lineTo(8f, 15f)
+            moveTo(13f, 15f); lineTo(17f, 15f)
+        }
+    }.build()
+}
+
+private val SettingsNavIcon: ImageVector by lazy {
+    ImageVector.Builder("SettingsNavIcon", 24.dp, 24.dp, 24f, 24f).apply {
+        path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
+            moveTo(4f, 6f); lineTo(20f, 6f)
+            moveTo(4f, 12f); lineTo(20f, 12f)
+            moveTo(4f, 18f); lineTo(20f, 18f)
+            moveTo(9f, 4f); lineTo(9f, 8f)
+            moveTo(15f, 10f); lineTo(15f, 14f)
+            moveTo(7f, 16f); lineTo(7f, 20f)
+        }
+    }.build()
+}
 
 data class PeerApp(val packageName: String, val name: String, val protectedApp: Boolean, val installed: Boolean = true, val pausedByPairLink: Boolean = false)
 data class AppPickerPage(val server: String, val sender: String, val device: String, val apps: List<PeerApp>, val truncated: Boolean, val blacklist: Boolean = false, val screenshotBlacklist: Boolean = false)
