@@ -10,7 +10,38 @@ on:
 permissions:
   contents: read
 jobs:
+  cleanup:
+    name: 清理过时 APK 产物
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const obsoleteNames = new Set([
+              'PairLink-0.1.0-debug',
+              'PairLink-0.2.0-debug',
+              'PairLink-release-unsigned',
+            ]);
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              ...context.repo,
+              per_page: 100,
+            });
+            const obsolete = artifacts.filter(artifact => obsoleteNames.has(artifact.name));
+            for (const artifact of obsolete) {
+              await github.rest.actions.deleteArtifact({
+                ...context.repo,
+                artifact_id: artifact.id,
+              });
+              core.info('已删除 ' + artifact.name + ' (' + artifact.id + ')');
+            }
+            await core.summary.addHeading('旧 APK 产物清理')
+              .addRaw('已删除 ' + obsolete.length + ' 个过时的 APK 产物')
+              .write();
   android:
+    needs: cleanup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,10 +68,27 @@ jobs:
           javac -d /tmp/pairlink-shell-tests android/app/src/main/java/com/lijinmu/pairlink/ScreenshotPolicy.java android/app/src/main/java/com/lijinmu/pairlink/BinaryCommand.java android/test/ScreenshotPolicyTest.java android/test/BinaryCommandTest.java
           java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.ScreenshotPolicyTest
           java -cp /tmp/pairlink-shell-tests com.lijinmu.pairlink.BinaryCommandTest
-      - run: gradle --no-daemon -p android assembleDebug lintDebug
+      - run: gradle --no-daemon -p android assembleRelease lintRelease
+      - name: 验证并准备未签名 Release APK
+        shell: bash
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$APK"
+          unzip -t "$APK"
+          if "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK" > /tmp/pairlink-signature-check.txt 2>&1; then
+            echo "::error::生成的 APK 意外包含签名"
+            exit 1
+          fi
+          cat /tmp/pairlink-signature-check.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          result = Path('/tmp/pairlink-signature-check.txt').read_text()
+          assert 'DOES NOT VERIFY' in result and 'Missing META-INF/MANIFEST.MF' in result, result
+          PY
+          cp "$APK" PairLink-0.2.1-release-unsigned.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: PairLink-0.2.0-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: PairLink-0.2.1-release-unsigned
+          path: PairLink-0.2.1-release-unsigned.apk
           if-no-files-found: error
           retention-days: 14
